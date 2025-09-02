@@ -54,10 +54,10 @@ const CONTEXTS = {
 
 // ---------- Bech32 helpers ----------
 const hrp = (tag) => `${appPrefix}${tag}`;
-const encB32 = (tag, bytes) => bech32.encode(hrp(tag), bech32.toWords(bytes), 10000);
+const encB32 = (tag, bytes) => bech32.encode(hrp(tag), bech32.toWords(bytes), false);
 const tryDecB32 = (s) => {
   try {
-    const { prefix, words } = bech32.decode(String(s).trim());
+    const { prefix, words } = bech32.decode(String(s).trim(), false);
     if (!prefix.startsWith(appPrefix)) return null;
     const tag = prefix.slice(appPrefix.length);
     return { tag, bytes: bech32.fromWords(words) };
@@ -135,7 +135,7 @@ const handlers = {
     } else {
       // legacy: appPrefix without tag and exact length (compat)
       try {
-        const { prefix, words } = bech32.decode(normalized);
+        const { prefix, words } = bech32.decode(normalized, false);
         if (prefix === appPrefix) cryptoState.masterKey = bech32.fromWords(words);
       } catch (_) { }
       if (!cryptoState.masterKey) {

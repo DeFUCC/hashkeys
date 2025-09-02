@@ -187,7 +187,7 @@ const copy = (text) => {
 
     // Header
     .text-center.mb-8
-      h1.text-5xl.font-bold #Key
+      h1.text-5xl.font-bold #Keys
       p.text-gray-500(v-if="!auth.authenticated") Secure local-first cryptography powered by Noble
       p.text-gray-600.mt-2(v-else) 
         | Identity: 
