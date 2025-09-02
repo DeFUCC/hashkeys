@@ -1,0 +1,46 @@
+{
+	"id": "hasauth",
+	"name": "HashAuth",
+	"short_name": "HashAuth",
+	"description": "Reactive Noble cryptography for p2p identity",
+	"start_url": "/",
+	"background_color": "#e5e5e5",
+	"theme_color": "#993300",
+	"display": "standalone",
+	"orientation": "any",
+	"display_override": ["window-controls-overlay", "minimal-ui", "standalone"],
+	"handle_links": "preferred",
+	"prefer_related_applications": false,
+	"categories": ["productivity", "utilities"],
+	"icons": [
+		{
+			"src": "./logo.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any"
+		},
+		{
+			"src": "./logo.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "./logo1024.png",
+			"sizes": "1024x1024",
+			"type": "image/png",
+			"purpose": "any"
+		}
+	],
+	"screenshots": [
+		{
+			"src": "./screenshot.jpg",
+			"sizes": "1826 × 1666",
+			"type": "image/jpeg",
+			"purpose": "any"
+		}
+	],
+	"launch_handler": {
+		"client_mode": ["focus-existing", "auto"]
+	}
+}

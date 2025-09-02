@@ -1,0 +1,65 @@
+{
+	"name": "hashauth",
+	"version": "0.1.0",
+	"description": "Reactive Noble cryptography for p2p identity",
+	"type": "module",
+	"homepage": "https://hashauth.js.org/",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/DeFUCC/hashauth"
+	},
+	"author": "davay42 <davay@defucc.me>",
+	"license": "MIT",
+	"packageManager": "pnpm@10.15.0",
+	"engines": {
+		"node": "22"
+	},
+	"scripts": {
+		"dev": "vite --host",
+		"build": "vite build --emptyOutDir",
+		"lib": "vite build --config vite.config.lib.js --emptyOutDir",
+		"preview": "vite preview --host"
+	},
+	"dependencies": {
+		"@noble/ciphers": "^2.0.0",
+		"@noble/curves": "^2.0.0",
+		"@noble/hashes": "^2.0.0",
+		"@scure/base": "^2.0.0",
+		"fflate": "^0.8.2",
+		"idb": "^8.0.3"
+	},
+	"peerDependencies": {
+		"vue": "^3.5.0"
+	},
+	"devDependencies": {
+		"@iconify-json/lucide": "^1.2.63",
+		"@unocss/extractor-pug": "^66.4.2",
+		"@unocss/reset": "^66.4.2",
+		"@vitejs/plugin-vue": "^6.0.1",
+		"@vue/compiler-sfc": "^3.5.19",
+		"@vue/language-plugin-pug": "^3.0.6",
+		"@vueuse/core": "^13.7.0",
+		"pug": "^3.0.3",
+		"unocss": "^66.4.2",
+		"vite": "^7.1.3",
+		"vite-plugin-singlefile": "^2.3.0",
+		"vue": "3.6.0-alpha.2",
+		"vue-router": "^4.5.1",
+		"webtorrent": "^2.8.4"
+	},
+	"main": "./lib/index.js",
+	"module": "./lib/index.js",
+	"exports": "./lib/index.js",
+	"files": [
+		"lib/"
+	],
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"bufferutil",
+			"esbuild",
+			"node-datachannel",
+			"utf-8-validate",
+			"utp-native"
+		]
+	}
+}
