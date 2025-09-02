@@ -12,10 +12,10 @@ import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 
 // Utils
-import { bytesToHex, hexToBytes, concatBytes, randomBytes } from '@noble/curves/utils.js';
+import { bytesToHex, hexToBytes, randomBytes } from '@noble/curves/utils.js';
 
-const appPrefix = 'ig';            // base HRP
-const versionSalt = 'ig_v1';       // KDF salt/version
+const appPrefix = 'hk';            // base HRP
+const versionSalt = 'hk_v1';       // KDF salt/version
 const CURVE_TYPE = 'ed25519';      // 'ed25519' | 'secp256k1'
 
 // Standard short tags (HRP = appPrefix + tag)

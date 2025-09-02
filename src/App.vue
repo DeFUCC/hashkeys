@@ -37,12 +37,11 @@ const demoData = reactive({
 
 
 const tabs = [
-  { id: 'auth', name: '🔐 Auth', icon: '🔑' },
-  { id: 'sign', name: '✍️ Sign', icon: '📝' },
-  { id: 'verify', name: '✅ Verify', icon: '🔍' },
-  { id: 'encrypt', name: '🔒 Encrypt', icon: '💾' },
-  { id: 'p2p', name: '🤝 P2P', icon: '📡' },
-  { id: 'keys', name: '🗝️ Keys', icon: '🔐' }
+  { id: 'sign', name: 'Sign', icon: '📝' },
+  { id: 'verify', name: 'Verify', icon: '🔍' },
+  { id: 'encrypt', name: 'Encrypt', icon: '🔒' },
+  { id: 'p2p', name: 'P2P', icon: '🤝' },
+  { id: 'keys', name: 'Keys', icon: '🗝️' }
 ]
 
 // Actions
@@ -178,6 +177,10 @@ const deriveCustomKey = async () => {
 const copy = (text) => {
   navigator.clipboard.writeText(text)
 }
+
+async function createPK() {
+  auth.passKeyAuth(await window.prompt('New passkey username'))
+}
 </script>
 
 <template lang="pug">
@@ -186,31 +189,41 @@ const copy = (text) => {
   .max-w-4xl.mx-auto
 
     // Header
-    .text-center.mb-8
+    .text-center.mb-8.flex.flex-col.gap-2
       h1.text-5xl.font-bold #Keys
-      p.text-gray-500(v-if="!auth.authenticated") Secure local-first cryptography powered by Noble
+      p.text-gray-500(v-if="!auth.authenticated") Reactive crypto-keys for local-first apps and p2p identity
       p.text-gray-600.mt-2(v-else) 
         | Identity: 
         code.bg-gray-100.px-2.py-1.rounded {{ auth.identity }}
 
 
     // Auth Section
-    .bg-white.rounded-xl.shadow-lg.p-6.mb-6(v-if="!auth.authenticated")
-      .text-center
-        .text-2xl.mb-4 🔑 Authentication Required
-        .flex.flex-col.gap-3.max-w-sm.mx-auto
-          input.px-4.py-3.border.rounded-lg.focus-ring(
-            v-model="passphrase" 
+    .rounded-xl(v-if="!auth.authenticated")
+      .text-center.flex.flex-col.items-center.gap-4
+        .flex.flex-wrap.gap-2
+          button.p-2.rounded-lg.hover-bg-blue-400.bg-blue-500.transition(
+            type="button" 
+            @click="createPK()"
+            :disabled="auth.loading"
+            ) 🫆   Create PassKey
+          button.p-2.rounded-lg.hover-bg-blue-400.bg-blue-500.transition(
+            type="button" 
+            @click="auth.passKeyLogin()"
+            :disabled="auth.loading"
+            ) 🫆   Use PassKey
+        form.flex.flex-col.items-center.gap-3.max-w-sm.mx-auto(@submit.prevent.stop="login")
+          input.text-center.px-4.py-3.border.rounded-lg.focus-ring(
+          v-model="passphrase" 
             type="password" 
             placeholder="Enter passphrase"
             @keyup.enter="login"
             :disabled="auth.loading"
           )
-          button.px-6.py-3.bg-gradient-to-r.from-purple-600.to-blue-600.text-white.rounded-lg.hover-scale-105.transition(
-            @click="login"
-            :disabled="auth.loading"
-          ) 
-            | {{ auth.loading ? '🔄 Logging in...' : '🚀 Login' }}
+          .flex
+            button.p-2.rounded-lg.hover-bg-green-400.bg-green-500.transition(
+              type="submit"
+              :disabled="auth.loading"
+              )  {{ auth.loading ? 'Logging in...' : 'Login' }}
 
         .text-red-500.mt-2(v-if="auth.error") {{ auth.error }}
 

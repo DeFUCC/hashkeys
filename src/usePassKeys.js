@@ -1,9 +1,7 @@
 export async function PassKeyAuth(name) {
   if (!name) return;
 
-  const id = crypto.getRandomValues(new Uint8Array(16))
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const challengeBase64url = btoa(String.fromCharCode(...challenge)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
   try {
     const credential = await navigator.credentials.create({
@@ -11,7 +9,7 @@ export async function PassKeyAuth(name) {
         challenge,
         rp: { name: "Intelligraphs" },
         user: {
-          id,
+          id: crypto.getRandomValues(new Uint8Array(16)),
           name,
           displayName: name,
         },
@@ -28,7 +26,7 @@ export async function PassKeyAuth(name) {
       },
     });
 
-    if (JSON.parse(new TextDecoder().decode(credential.response.clientDataJSON))?.challenge != challengeBase64url) return false;
+    if (JSON.parse(new TextDecoder().decode(credential.response.clientDataJSON))?.challenge != btoa(String.fromCharCode(...challenge)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")) return false;
 
     return credential.rawId
   } catch (error) {
@@ -39,7 +37,6 @@ export async function PassKeyAuth(name) {
 
 export async function PassKeyLogin() {
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const challengeBase64url = btoa(String.fromCharCode(...challenge)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
   try {
     const credential = await navigator.credentials.get({
@@ -49,7 +46,9 @@ export async function PassKeyLogin() {
         timeout: 60000,
       },
     });
-    if (JSON.parse(new TextDecoder().decode(credential.response.clientDataJSON))?.challenge != challengeBase64url) return false;
+
+    if (JSON.parse(new TextDecoder().decode(credential.response.clientDataJSON))?.challenge != btoa(String.fromCharCode(...challenge)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")) return false;
+
     return credential.rawId
 
   } catch (error) {

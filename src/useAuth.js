@@ -1,26 +1,37 @@
 import { reactive } from 'vue';
 import AuthWorker from './auth-worker.js?worker&inline';
+import { bech32 } from '@scure/base';
+import { PassKeyLogin, PassKeyAuth } from './usePassKeys';
 
 const worker = new AuthWorker();
 
-// Reactive state
 export const auth = reactive({
-  // Authentication state
   authenticated: false,
   loading: false,
   error: null,
 
-  // Identity & keys
   publicKey: null,
   identity: null,
   encryptionKey: null,
   curve: null,
 
-  // Request tracking
   requestId: 0,
   pendingRequests: new Map(),
 
-  // Core authentication methods
+  async passKeyAuth(name) {
+    let rawId = await PassKeyAuth(name)
+    if (!rawId) return false;
+    let id = bech32.encode('hkwa', bech32.toWords(new Uint8Array(rawId)));
+    auth.login(id)
+  },
+
+  async passKeyLogin() {
+    let rawId = await PassKeyLogin()
+    if (!rawId) return false;
+    let id = bech32.encode('hkwa', bech32.toWords(new Uint8Array(rawId)));
+    auth.login(id)
+  },
+
   async login(password) {
     this.loading = true;
     this.error = null;
@@ -43,7 +54,6 @@ export const auth = reactive({
     });
   },
 
-  // Cryptographic operations
   async sign(message) {
     if (!this.authenticated) throw new Error('Not authenticated');
 
@@ -138,13 +148,11 @@ export const auth = reactive({
     });
   },
 
-  // Helper methods
   clearError() {
     this.error = null;
   },
 });
 
-// Worker message handlers
 const handlers = {
   auth(data) {
     auth.loading = false;
@@ -176,16 +184,13 @@ const handlers = {
   }
 };
 
-// Worker message router
 worker.onmessage = ({ data }) => {
   const { id, success, error, type, result } = data;
 
-  // Handle specific type responses first
   if (success && handlers[type]) {
     handlers[type](data);
   }
 
-  // Handle pending promise requests
   if (id && auth.pendingRequests.has(id)) {
     const { resolve, reject } = auth.pendingRequests.get(id);
     auth.pendingRequests.delete(id);

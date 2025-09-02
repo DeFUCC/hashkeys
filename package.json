@@ -1,12 +1,12 @@
 {
 	"name": "hashkeys",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Reactive Noble cryptography for p2p identity",
 	"type": "module",
-	"homepage": "https://hashkeys.js.org/",
+	"homepage": "https://github.com/DeFUCC/hashkeys",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/DeFUCC/hashkeys"
+		"url": "git+https://github.com/DeFUCC/hashkeys.git"
 	},
 	"author": "davay42 <davay@defucc.me>",
 	"license": "MIT",
