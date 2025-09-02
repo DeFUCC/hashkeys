@@ -14,9 +14,22 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 // Utils
 import { bytesToHex, hexToBytes, concatBytes, randomBytes } from '@noble/curves/utils.js';
 
-const appPrefix = 'ig';
-const versionSalt = 'ig_v1';
-const CURVE_TYPE = 'ed25519'; // Can be 'ed25519' or 'secp256k1'
+const appPrefix = 'ig';            // base HRP
+const versionSalt = 'ig_v1';       // KDF salt/version
+const CURVE_TYPE = 'ed25519';      // 'ed25519' | 'secp256k1'
+
+// Standard short tags (HRP = appPrefix + tag)
+const TAG = Object.freeze({
+  MK: 'mk',   // master key (32)
+  PK: 'pk',   // public key (verify)
+  SK: 'sk',   // signing private (32) [export optional]
+  EK: 'ek',   // encryption public (x25519 or secp)
+  ID: 'id',   // identity hash (32)
+  SG: 'sg',   // signature
+  NC: 'nc',   // nonce
+  CT: 'ct',   // ciphertext
+  DK: 'dk'    // derived key material
+});
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -32,13 +45,67 @@ let cryptoState = {
   identity: null
 };
 
-// Key derivation contexts
+// Contexts for HKDF
 const CONTEXTS = {
   SIGNING: 'signing',
   ENCRYPTION: 'encryption',
   IDENTITY: 'identity'
 };
 
+// ---------- Bech32 helpers ----------
+const hrp = (tag) => `${appPrefix}${tag}`;
+const encB32 = (tag, bytes) => bech32.encode(hrp(tag), bech32.toWords(bytes), 10000);
+const tryDecB32 = (s) => {
+  try {
+    const { prefix, words } = bech32.decode(String(s).trim());
+    if (!prefix.startsWith(appPrefix)) return null;
+    const tag = prefix.slice(appPrefix.length);
+    return { tag, bytes: bech32.fromWords(words) };
+  } catch (_) { return null; }
+};
+
+// Flexible bytes parser: prefers bech32; falls back to hex; else utf8
+function asBytes(input) {
+  if (typeof input === 'string') {
+    const b = tryDecB32(input);
+    if (b) return b.bytes;
+    const s = input.trim();
+    if (/^[0-9a-fA-F]+$/.test(s) && s.length % 2 === 0) return hexToBytes(s);
+    return encoder.encode(s);
+  }
+  return input instanceof Uint8Array ? input : new Uint8Array([]);
+}
+
+// Key derivation via HKDF
+function deriveKey(context, length = 32) {
+  if (!cryptoState.masterKey) throw new Error('Master key not available');
+  return hkdf(sha256, cryptoState.masterKey, encoder.encode(context), encoder.encode(versionSalt), length);
+}
+
+function initializeCryptoKeys() {
+  if (!cryptoState.masterKey) return;
+
+  const signingKeyMaterial = deriveKey(CONTEXTS.SIGNING, 32);
+
+  if (CURVE_TYPE === 'ed25519') {
+    cryptoState.signingKey = signingKeyMaterial;
+    cryptoState.verifyingKey = ed25519.getPublicKey(cryptoState.signingKey);
+    cryptoState.publicKey = cryptoState.verifyingKey;
+
+    // Derive X25519 key for encryption from Ed25519 key material
+    cryptoState.privateKey = signingKeyMaterial;
+    cryptoState.encryptionKey = x25519.getPublicKey(cryptoState.privateKey);
+  } else if (CURVE_TYPE === 'secp256k1') {
+    cryptoState.privateKey = signingKeyMaterial;
+    cryptoState.publicKey = secp256k1.getPublicKey(cryptoState.privateKey, true); // compressed
+    cryptoState.signingKey = cryptoState.privateKey;
+    cryptoState.verifyingKey = cryptoState.publicKey;
+  }
+
+  cryptoState.identity = sha256(cryptoState.publicKey);
+}
+
+// ---------- Message handlers ----------
 self.onmessage = async (e) => {
   const { id, type, data } = e.data;
   try {
@@ -52,46 +119,6 @@ self.onmessage = async (e) => {
   }
 };
 
-// Derive specialized keys from master key using HKDF
-function deriveKey(context, length = 32) {
-  if (!cryptoState.masterKey) throw new Error('Master key not available');
-  return hkdf(sha256, cryptoState.masterKey, encoder.encode(context), encoder.encode(versionSalt), length);
-}
-
-// Initialize cryptographic keys from master key
-function initializeCryptoKeys() {
-  if (!cryptoState.masterKey) return;
-
-  // Derive signing private key
-  const signingKeyMaterial = deriveKey(CONTEXTS.SIGNING, 32);
-
-  if (CURVE_TYPE === 'ed25519') {
-    cryptoState.signingKey = signingKeyMaterial;
-    cryptoState.verifyingKey = ed25519.getPublicKey(cryptoState.signingKey);
-    cryptoState.publicKey = cryptoState.verifyingKey;
-
-    // Derive X25519 key for encryption from Ed25519 key
-    cryptoState.privateKey = signingKeyMaterial;
-    cryptoState.encryptionKey = x25519.getPublicKey(cryptoState.privateKey);
-  } else if (CURVE_TYPE === 'secp256k1') {
-    cryptoState.privateKey = signingKeyMaterial;
-    cryptoState.publicKey = secp256k1.getPublicKey(cryptoState.privateKey, true); // compressed
-    cryptoState.signingKey = cryptoState.privateKey;
-    cryptoState.verifyingKey = cryptoState.publicKey;
-  }
-
-  // Create identity hash from public key
-  cryptoState.identity = sha256(cryptoState.publicKey);
-}
-
-// Generate deterministic nonce for encryption
-function generateNonce(context, counter = 0) {
-  const nonceKey = deriveKey(`nonce_${context}`, 32);
-  const counterBytes = new Uint8Array(8);
-  new DataView(counterBytes.buffer).setBigUint64(0, BigInt(counter), false);
-  return sha256(concatBytes(nonceKey, counterBytes)).slice(0, 24); // 192-bit nonce for XChaCha20
-}
-
 const handlers = {
   async auth(id, data) {
     if (!data) {
@@ -99,24 +126,27 @@ const handlers = {
       return;
     }
 
-    const normalized = String(data).normalize('NFC').toLowerCase().trim();
+    const normalized = String(data).normalize('NFC').trim();
 
-    try {
-      // Try to decode as bech32 first
-      let { prefix, words } = bech32.decode(normalized);
-      if (prefix === appPrefix && words.length === 52) {
-        cryptoState.masterKey = bech32.fromWords(words);
+    // Import master key: prefer bech32 igmk..., accept legacy ig... or derive from password
+    const b = tryDecB32(normalized);
+    if (b && (b.tag === TAG.MK || b.tag === '' /* legacy */)) {
+      cryptoState.masterKey = b.bytes;
+    } else {
+      // legacy: appPrefix without tag and exact length (compat)
+      try {
+        const { prefix, words } = bech32.decode(normalized);
+        if (prefix === appPrefix) cryptoState.masterKey = bech32.fromWords(words);
+      } catch (_) { }
+      if (!cryptoState.masterKey) {
+        cryptoState.masterKey = scrypt(
+          encoder.encode(normalized.toLowerCase()),
+          encoder.encode(versionSalt),
+          { N: 1 << 17, r: 8, p: 1, dkLen: 32 }
+        );
       }
-    } catch (e) {
-      // Fallback to password-based key derivation
-      cryptoState.masterKey = scrypt(
-        encoder.encode(normalized),
-        encoder.encode(versionSalt),
-        { N: 1 << 17, r: 8, p: 1, dkLen: 32 }
-      );
     }
 
-    // Initialize all cryptographic keys
     initializeCryptoKeys();
 
     self.postMessage({
@@ -125,22 +155,19 @@ const handlers = {
       success: true,
       result: {
         authenticated: true,
-        publicKey: bytesToHex(cryptoState.publicKey),
-        identity: bytesToHex(cryptoState.identity),
-        encryptionKey: CURVE_TYPE === 'ed25519' ? bytesToHex(cryptoState.encryptionKey) : null
+        publicKey: encB32(TAG.PK, cryptoState.publicKey),
+        identity: encB32(TAG.ID, cryptoState.identity),
+        encryptionKey: CURVE_TYPE === 'ed25519' ? encB32(TAG.EK, cryptoState.encryptionKey) : null,
+        curve: CURVE_TYPE
       }
     });
   },
 
   logout(id) {
-    // Securely clear all keys
-    Object.keys(cryptoState).forEach(key => {
-      if (cryptoState[key] instanceof Uint8Array) {
-        cryptoState[key].fill(0);
-      }
+    Object.keys(cryptoState).forEach((key) => {
+      if (cryptoState[key] instanceof Uint8Array) cryptoState[key].fill(0);
       cryptoState[key] = null;
     });
-
     self.postMessage({ id, type: 'logout', success: true, result: { authenticated: false } });
   },
 
@@ -149,13 +176,12 @@ const handlers = {
       self.postMessage({ id, success: false, error: 'Not authenticated' });
       return;
     }
-
     self.postMessage({
       id,
       success: true,
       result: {
-        publicKey: bytesToHex(cryptoState.publicKey),
-        identity: bytesToHex(cryptoState.identity),
+        publicKey: encB32(TAG.PK, cryptoState.publicKey),
+        identity: encB32(TAG.ID, cryptoState.identity),
         curve: CURVE_TYPE
       }
     });
@@ -166,32 +192,26 @@ const handlers = {
       self.postMessage({ id, success: false, error: 'Not authenticated' });
       return;
     }
-
     self.postMessage({
       id,
       type: 'master-key',
       success: true,
-      result: bech32.encode(appPrefix, bech32.toWords(cryptoState.masterKey))
+      result: encB32(TAG.MK, cryptoState.masterKey)
     });
   },
 
-  async sign(id, { message, encoding = 'utf8' }) {
+  async sign(id, { message }) {
     if (!cryptoState.signingKey) {
       self.postMessage({ id, success: false, error: 'Not authenticated' });
       return;
     }
 
-    let messageBytes;
-    if (encoding === 'hex') {
-      messageBytes = hexToBytes(message);
-    } else {
-      messageBytes = encoder.encode(message);
-    }
+    const messageBytes = asBytes(message);
 
     let signature;
     if (CURVE_TYPE === 'ed25519') {
       signature = ed25519.sign(messageBytes, cryptoState.signingKey);
-    } else if (CURVE_TYPE === 'secp256k1') {
+    } else {
       signature = secp256k1.sign(sha256(messageBytes), cryptoState.signingKey).toCompactRawBytes();
     }
 
@@ -199,52 +219,55 @@ const handlers = {
       id,
       success: true,
       result: {
-        signature: bytesToHex(signature),
-        publicKey: bytesToHex(cryptoState.verifyingKey)
+        signature: encB32(TAG.SG, signature),
+        publicKey: encB32(TAG.PK, cryptoState.verifyingKey)
       }
     });
   },
 
-  async verify(id, { message, signature, publicKey, encoding = 'utf8' }) {
-    let messageBytes;
-    if (encoding === 'hex') {
-      messageBytes = hexToBytes(message);
-    } else {
-      messageBytes = encoder.encode(message);
+  async verify(id, { message, signature, publicKey }) {
+    const messageBytes = asBytes(message);
+
+    const sigB = tryDecB32(signature);
+    const pkB = tryDecB32(publicKey);
+    if (!sigB || sigB.tag !== TAG.SG || !pkB || (pkB.tag !== TAG.PK && pkB.tag !== TAG.EK)) {
+      self.postMessage({ id, success: false, error: 'Invalid bech32 inputs for signature/publicKey' });
+      return;
     }
 
-    const signatureBytes = hexToBytes(signature);
-    const publicKeyBytes = hexToBytes(publicKey);
+    const signatureBytes = sigB.bytes;
+    const publicKeyBytes = pkB.bytes;
 
     let isValid;
     if (CURVE_TYPE === 'ed25519') {
       isValid = ed25519.verify(signatureBytes, messageBytes, publicKeyBytes);
-    } else if (CURVE_TYPE === 'secp256k1') {
+    } else {
       isValid = secp256k1.verify(signatureBytes, sha256(messageBytes), publicKeyBytes);
     }
 
     self.postMessage({ id, success: true, result: { valid: isValid } });
   },
 
-  async encrypt(id, { data, recipientPublicKey, encoding = 'utf8', algorithm = 'xchacha20poly1305' }) {
+  async encrypt(id, { data, recipientPublicKey, algorithm = 'xchacha20poly1305' }) {
     if (!cryptoState.privateKey) {
       self.postMessage({ id, success: false, error: 'Not authenticated' });
       return;
     }
 
-    let dataBytes;
-    if (encoding === 'hex') {
-      dataBytes = hexToBytes(data);
-    } else {
-      dataBytes = encoder.encode(data);
-    }
+    const dataBytes = asBytes(data);
 
     if (CURVE_TYPE === 'ed25519' && recipientPublicKey) {
-      // Perform X25519 key exchange
-      const sharedSecret = x25519.getSharedSecret(cryptoState.privateKey, hexToBytes(recipientPublicKey));
+      const rec = tryDecB32(recipientPublicKey);
+      if (!rec || (rec.tag !== TAG.EK && rec.tag !== TAG.PK)) {
+        self.postMessage({ id, success: false, error: 'recipientPublicKey must be bech32 igek... or igpk...' });
+        return;
+      }
+
+      // X25519 key exchange
+      const sharedSecret = x25519.getSharedSecret(cryptoState.privateKey, rec.bytes);
       const encryptionKey = sha256(sharedSecret);
 
-      const nonce = randomBytes(24); // XChaCha20 nonce
+      const nonce = randomBytes(24);
       const cipher = xchacha20poly1305(encryptionKey, nonce);
       const encrypted = cipher.encrypt(dataBytes);
 
@@ -252,8 +275,8 @@ const handlers = {
         id,
         success: true,
         result: {
-          encrypted: bytesToHex(encrypted),
-          nonce: bytesToHex(nonce),
+          ciphertext: encB32(TAG.CT, encrypted),
+          nonce: encB32(TAG.NC, nonce),
           algorithm: 'xchacha20poly1305-x25519'
         }
       });
@@ -262,57 +285,58 @@ const handlers = {
       const encKey = deriveKey('data_encryption', 32);
       const nonce = randomBytes(algorithm === 'aes-256-gcm' ? 12 : 24);
 
-      let cipher, encrypted;
+      let encrypted;
       if (algorithm === 'aes-256-gcm') {
-        cipher = gcm(encKey, nonce);
-        encrypted = cipher.encrypt(dataBytes);
+        encrypted = gcm(encKey, nonce).encrypt(dataBytes);
       } else {
-        cipher = xchacha20poly1305(encKey, nonce);
-        encrypted = cipher.encrypt(dataBytes);
+        encrypted = xchacha20poly1305(encKey, nonce).encrypt(dataBytes);
       }
 
       self.postMessage({
         id,
         success: true,
         result: {
-          encrypted: bytesToHex(encrypted),
-          nonce: bytesToHex(nonce),
+          ciphertext: encB32(TAG.CT, encrypted),
+          nonce: encB32(TAG.NC, nonce),
           algorithm
         }
       });
     }
   },
 
-  async decrypt(id, { encrypted, nonce, senderPublicKey, algorithm = 'xchacha20poly1305' }) {
+  async decrypt(id, { ciphertext, nonce, senderPublicKey, algorithm = 'xchacha20poly1305' }) {
     if (!cryptoState.privateKey) {
       self.postMessage({ id, success: false, error: 'Not authenticated' });
       return;
     }
 
-    const encryptedBytes = hexToBytes(encrypted);
-    const nonceBytes = hexToBytes(nonce);
+    const ctB = tryDecB32(ciphertext);
+    const ncB = tryDecB32(nonce);
+    if (!ctB || ctB.tag !== TAG.CT || !ncB || ncB.tag !== TAG.NC) {
+      self.postMessage({ id, success: false, error: 'ciphertext/nonce must be bech32 igct.../ignc...' });
+      return;
+    }
+    const encryptedBytes = ctB.bytes;
+    const nonceBytes = ncB.bytes;
 
     let decrypted;
 
     if (algorithm === 'xchacha20poly1305-x25519' && senderPublicKey) {
-      // X25519 key exchange decryption
-      const sharedSecret = x25519.getSharedSecret(cryptoState.privateKey, hexToBytes(senderPublicKey));
-      const decryptionKey = sha256(sharedSecret);
-
-      const cipher = xchacha20poly1305(decryptionKey, nonceBytes);
-      decrypted = cipher.decrypt(encryptedBytes);
-    } else {
-      // Symmetric decryption
-      const decKey = deriveKey('data_encryption', 32);
-
-      let cipher;
-      if (algorithm === 'aes-256-gcm') {
-        cipher = gcm(decKey, nonceBytes);
-      } else {
-        cipher = xchacha20poly1305(decKey, nonceBytes);
+      const sen = tryDecB32(senderPublicKey);
+      if (!sen || (sen.tag !== TAG.EK && sen.tag !== TAG.PK)) {
+        self.postMessage({ id, success: false, error: 'senderPublicKey must be bech32 igek... or igpk...' });
+        return;
       }
-
-      decrypted = cipher.decrypt(encryptedBytes);
+      const sharedSecret = x25519.getSharedSecret(cryptoState.privateKey, sen.bytes);
+      const decryptionKey = sha256(sharedSecret);
+      decrypted = xchacha20poly1305(decryptionKey, nonceBytes).decrypt(encryptedBytes);
+    } else {
+      const decKey = deriveKey('data_encryption', 32);
+      if (algorithm === 'aes-256-gcm') {
+        decrypted = gcm(decKey, nonceBytes).decrypt(encryptedBytes);
+      } else {
+        decrypted = xchacha20poly1305(decKey, nonceBytes).decrypt(encryptedBytes);
+      }
     }
 
     self.postMessage({
@@ -330,14 +354,12 @@ const handlers = {
       self.postMessage({ id, success: false, error: 'Not authenticated' });
       return;
     }
-
     const derivedKey = deriveKey(context, length);
-
     self.postMessage({
       id,
       success: true,
       result: {
-        derivedKey: bytesToHex(derivedKey),
+        derivedKey: encB32(TAG.DK, derivedKey),
         context,
         length
       }
@@ -349,13 +371,12 @@ const handlers = {
       self.postMessage({ id, success: false, error: 'Not authenticated' });
       return;
     }
-
     self.postMessage({
       id,
       success: true,
       result: {
-        identity: bytesToHex(cryptoState.identity),
-        publicKey: bytesToHex(cryptoState.publicKey),
+        identity: encB32(TAG.ID, cryptoState.identity),
+        publicKey: encB32(TAG.PK, cryptoState.publicKey),
         curve: CURVE_TYPE
       }
     });

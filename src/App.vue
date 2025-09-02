@@ -28,6 +28,7 @@ const demoData = reactive({
   p2pMessage: 'Secret message to peer',
   p2pResult: null,
   p2pChannel: null,
+  p2pDecrypted: null,
 
   // Identity
   masterKey: null,
@@ -71,10 +72,20 @@ const signDemo = async () => {
 
 const verifyDemo = async () => {
   try {
+    // Fill from latest sign/auth if missing
+    const sig = (demoData.verifySignature || demoData.signResult?.signature || '').trim().toLowerCase()
+    const pkIn = (demoData.verifyPublicKey || auth.publicKey || '').trim().toLowerCase()
+
+    if (!sig || !pkIn) {
+      demoData.verifyResult = { valid: false }
+      console.warn('Missing signature or public key for verification')
+      return
+    }
+
     demoData.verifyResult = await auth.verify(
       demoData.verifyText,
-      demoData.verifySignature,
-      demoData.verifyPublicKey
+      sig,
+      pkIn
     )
   } catch (error) {
     console.error('Verify failed:', error)
@@ -93,7 +104,7 @@ const decryptDemo = async () => {
   if (!demoData.encryptResult) return
   try {
     demoData.decryptResult = await auth.decrypt(
-      demoData.encryptResult.encrypted,
+      demoData.encryptResult.ciphertext,
       demoData.encryptResult.nonce
     )
   } catch (error) {
@@ -110,7 +121,7 @@ const setupP2P = async () => {
         const res = await auth.encrypt(message, demoData.peerPublicKey)
         return {
           from: auth.publicKey,
-          encrypted: res.encrypted,
+          ciphertext: res.ciphertext,
           nonce: res.nonce,
           algorithm: res.algorithm
         }
@@ -125,8 +136,21 @@ const sendP2P = async () => {
   if (!demoData.p2pChannel) return
   try {
     demoData.p2pResult = await demoData.p2pChannel.send(demoData.p2pMessage)
+    demoData.p2pDecrypted = null
   } catch (error) {
     console.error('P2P send failed:', error)
+  }
+}
+
+const decryptP2P = async () => {
+  const env = demoData.p2pResult
+  if (!env) return
+  try {
+    // Decrypt using sender's public key and provided algorithm (xchacha20poly1305-x25519)
+    const res = await auth.decrypt(env.ciphertext, env.nonce, env.from, env.algorithm)
+    demoData.p2pDecrypted = res.decrypted
+  } catch (error) {
+    console.error('P2P decrypt failed:', error)
   }
 }
 
@@ -163,7 +187,7 @@ const copy = (text) => {
 
     // Header
     .text-center.mb-8
-      h1.text-5xl.font-bold #Auth
+      h1.text-5xl.font-bold #Key
       p.text-gray-500(v-if="!auth.authenticated") Secure local-first cryptography powered by Noble
       p.text-gray-600.mt-2(v-else) 
         | Identity: 
@@ -246,14 +270,14 @@ const copy = (text) => {
               label.block.font-medium.mb-2 Signature:
               input.w-full.p-3.border.rounded-lg.font-mono.text-xs(
                 v-model="demoData.verifySignature"
-                placeholder="Paste signature hex..."
+                placeholder="Paste signature bech32 igsg..."
               )
 
             div
               label.block.font-medium.mb-2 Public Key:
               input.w-full.p-3.border.rounded-lg.font-mono.text-xs(
                 v-model="demoData.verifyPublicKey"
-                placeholder="Paste public key hex..."
+                placeholder="Paste public key bech32 igpk... (or leave empty to use yours)"
               )
 
             button.px-6.py-2.bg-blue-600.text-white.rounded-lg.hover-bg-blue-700(
@@ -296,7 +320,7 @@ const copy = (text) => {
                 .mt-2.space-y-2
                   div
                     .text-sm.text-gray-600 Cipher:
-                    .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.encryptResult.encrypted.slice(0, 100) }}...
+                    .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.encryptResult.ciphertext.slice(0, 100) }}...
                   div
                     .text-sm.text-gray-600 Nonce:
                     .font-mono.text-xs.bg-white.p-2.rounded {{ demoData.encryptResult.nonce }}
@@ -314,7 +338,7 @@ const copy = (text) => {
               label.block.font-medium.mb-2 Peer's Public Key:
               input.w-full.p-3.border.rounded-lg.font-mono.text-xs(
                 v-model="demoData.peerPublicKey"
-                placeholder="Paste peer's public key for E2E encryption..."
+                placeholder="Paste peer's public key (igpk... or igek...) for E2E encryption..."
               )
               .text-sm.text-gray-500.mt-1 Your public key: 
                 code.bg-gray-100.px-1.rounded {{ auth.publicKey?.slice(0, 20) }}...
@@ -337,9 +361,15 @@ const copy = (text) => {
                   placeholder="Enter message to encrypt for peer..."
                 )
 
-              button.px-6.py-2.bg-pink-600.text-white.rounded-lg.hover-bg-pink-700(
-                @click="sendP2P"
-              ) 📤 Encrypt Message
+              .flex.gap-2
+                button.px-6.py-2.bg-pink-600.text-white.rounded-lg.hover-bg-pink-700(
+                  @click="sendP2P"
+                ) 📤 Encrypt Message
+
+                button.px-6.py-2.bg-emerald-600.text-white.rounded-lg.hover-bg-emerald-700(
+                  @click="decryptP2P"
+                  :disabled="!demoData.p2pResult"
+                ) 📥 Decrypt Envelope
 
               div(v-if="demoData.p2pResult")
                 .bg-pink-50.border.border-pink-200.rounded-lg.p-4.mt-4
@@ -350,7 +380,12 @@ const copy = (text) => {
                       .font-mono.text-xs.bg-white.p-1.rounded {{ demoData.p2pResult.from.slice(0, 20) }}...
                     div
                       .text-sm.text-gray-600 Encrypted Payload:
-                      .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.p2pResult.encrypted.slice(0, 60) }}...
+                      .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.p2pResult.ciphertext.slice(0, 60) }}...
+
+              div(v-if="demoData.p2pDecrypted")
+                .bg-emerald-50.border.border-emerald-200.rounded-lg.p-4.mt-4
+                  .font-medium.text-emerald-800 ✅ Decrypted P2P Message
+                  .mt-2.bg-white.p-3.rounded.font-mono {{ demoData.p2pDecrypted }}
 
         // Keys Tab
         div(v-show="activeTab === 'keys'")

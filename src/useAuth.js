@@ -44,29 +44,29 @@ export const auth = reactive({
   },
 
   // Cryptographic operations
-  async sign(message, encoding = 'utf8') {
+  async sign(message) {
     if (!this.authenticated) throw new Error('Not authenticated');
 
     return new Promise((resolve, reject) => {
       const id = ++this.requestId;
       this.pendingRequests.set(id, { resolve, reject, type: 'sign' });
-      worker.postMessage({ id, type: 'sign', data: { message, encoding } });
+      worker.postMessage({ id, type: 'sign', data: { message } });
     });
   },
 
-  async verify(message, signature, publicKey, encoding = 'utf8') {
+  async verify(message, signature, publicKey) {
     return new Promise((resolve, reject) => {
       const id = ++this.requestId;
       this.pendingRequests.set(id, { resolve, reject, type: 'verify' });
       worker.postMessage({
         id,
         type: 'verify',
-        data: { message, signature, publicKey, encoding }
+        data: { message, signature, publicKey }
       });
     });
   },
 
-  async encrypt(data, recipientPublicKey = null, encoding = 'utf8', algorithm = 'xchacha20poly1305') {
+  async encrypt(data, recipientPublicKey = null, algorithm = 'xchacha20poly1305') {
     if (!this.authenticated) throw new Error('Not authenticated');
 
     return new Promise((resolve, reject) => {
@@ -75,12 +75,12 @@ export const auth = reactive({
       worker.postMessage({
         id,
         type: 'encrypt',
-        data: { data, recipientPublicKey, encoding, algorithm }
+        data: { data, recipientPublicKey, algorithm }
       });
     });
   },
 
-  async decrypt(encrypted, nonce, senderPublicKey = null, algorithm = 'xchacha20poly1305') {
+  async decrypt(ciphertext, nonce, senderPublicKey = null, algorithm = 'xchacha20poly1305') {
     if (!this.authenticated) throw new Error('Not authenticated');
 
     return new Promise((resolve, reject) => {
@@ -89,7 +89,7 @@ export const auth = reactive({
       worker.postMessage({
         id,
         type: 'decrypt',
-        data: { encrypted, nonce, senderPublicKey, algorithm }
+        data: { ciphertext, nonce, senderPublicKey, algorithm }
       });
     });
   },
@@ -154,7 +154,7 @@ const handlers = {
       auth.publicKey = data.result.publicKey;
       auth.identity = data.result.identity;
       auth.encryptionKey = data.result.encryptionKey;
-      auth.curve = 'ed25519'; // From worker configuration
+      auth.curve = data.result.curve || null;
       auth.error = null;
     } else {
       auth.authenticated = false;

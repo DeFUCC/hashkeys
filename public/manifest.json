@@ -1,7 +1,7 @@
 {
 	"id": "hasauth",
-	"name": "HashAuth",
-	"short_name": "HashAuth",
+	"name": "HashKey",
+	"short_name": "HashKey",
 	"description": "Reactive Noble cryptography for p2p identity",
 	"start_url": "/",
 	"background_color": "#e5e5e5",
