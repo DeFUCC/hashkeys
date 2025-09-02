@@ -1,9 +1,10 @@
-import { reactive } from 'vue';
+import { reactive, watch } from 'vue';
 import AuthWorker from './auth-worker.js?worker&inline';
 import { bech32 } from '@scure/base';
 import { PassKeyLogin, PassKeyAuth } from './usePassKeys';
 
 const worker = new AuthWorker();
+const SESSION_KEY = 'hk.masterKey';
 
 export const auth = reactive({
   authenticated: false,
@@ -148,6 +149,18 @@ export const auth = reactive({
     });
   },
 
+  async recall() {
+    try {
+      const stored = sessionStorage.getItem(SESSION_KEY);
+      if (!stored) return false;
+      await this.login(stored);
+      return true;
+    } catch (e) {
+      sessionStorage.removeItem(SESSION_KEY);
+      return false;
+    }
+  },
+
   clearError() {
     this.error = null;
   },
@@ -210,5 +223,24 @@ worker.onerror = (error) => {
   auth.error = 'Cryptographic worker failed';
   auth.loading = false;
 };
+
+// Persist master key in sessionStorage while authenticated
+watch(
+  () => auth.authenticated,
+  async (val) => {
+    try {
+      if (val) {
+        const mk = await auth.getMasterKey();
+        if (typeof mk === 'string' && mk) {
+          sessionStorage.setItem(SESSION_KEY, mk);
+        }
+      } else {
+        sessionStorage.removeItem(SESSION_KEY);
+      }
+    } catch (_) {
+      // ignore persistence errors
+    }
+  }
+);
 
 export default auth;

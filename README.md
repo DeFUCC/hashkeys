@@ -1,12 +1,14 @@
-# hashkeys — Vue reactive auth and crypto
+# HashKeys — Vue reactive auth and cryptography
 
-Reactive Noble cryptography for local‑first apps and p2p identity. `hashkeys` exposes a single Vue 3 reactive object that runs all cryptography in a Web Worker and gives you a simple API for:
+Reactive Noble cryptography for local‑first apps and p2p identity. `hashkeys` exposes a single Vue 3 reactive object that runs all cryptography in a Web Worker and provides a simple API for:
 
 - Authentication from a passphrase or bech32 master key
 - Identity and public keys
 - Sign/verify
 - Symmetric and end‑to‑end encryption
 - HKDF key derivation
+- PassKeys (WebAuthn) helper flows
+- Session persistence
 
 ---
 
@@ -86,16 +88,20 @@ The default export is a Vue `reactive` object with state and async methods that 
 - `getIdentity(): Promise<{ identity: string, publicKey: string, curve: string }>`
 - `getPublicKey(): Promise<{ publicKey: string, identity: string, curve: string }>`
 - `getMasterKey(): Promise<string>` — bech32 `hkmk…`
+- `recall(): Promise<boolean>` — attempts to read the bech32 master key from sessionStorage and log in. Returns `true` if a stored key was found and a login attempt was made.
 - `clearError(): void`
+- `passKeyAuth(name: string): Promise<boolean>` — creates/registers a WebAuthn credential (PassKey) for the given user name, then logs in using the generated credential ID encoded as `hkwa…`.
+- `passKeyLogin(): Promise<boolean>` — prompts for an existing PassKey and logs in using its credential ID encoded as `hkwa…`.
 
 Notes:
 - All methods throw if not authenticated, except `verify`, which operates on provided public inputs.
+- PassKeys helpers encode the WebAuthn `rawId` with Bech32 HRP `hkwa` and use it as the login secret. The worker derives keys from whatever string you pass to `login()`; `hkwa…` is simply a recognizable wrapper for the credential ID.
 
 ---
 
 ## Bech32 prefixes
 
-The library uses short, readable Bech32 encodings with an app prefix `hk` and a tag.
+Short, readable Bech32 encodings are used with app prefix `hk` + tag:
 
 - `hkmk…` master key
 - `hkpk…` public/verify key
@@ -105,18 +111,17 @@ The library uses short, readable Bech32 encodings with an app prefix `hk` and a 
 - `hknc…` nonce
 - `hkct…` ciphertext
 - `hkdk…` derived key material
+- `hkwa…` WebAuthn credential ID (used as a login secret by helpers)
 
 ---
 
-## Under the hood
+## Session persistence
 
-All cryptography runs off the main thread in a Worker and uses audited Noble primitives:
+When you authenticate, hashkeys will fetch the bech32 master key (`hkmk…`) from the worker and store it in `sessionStorage` under `hk.masterKey`. When you logout or the page is refreshed without recalling, it is cleared. Use `auth.recall()` at startup to restore the session if a key is present.
 
-- Hash/KDF: `scrypt`, `HKDF-SHA256`, `SHA-256`
-- Curves: `ed25519` (default), X25519 for ECDH; `secp256k1` supported via internal switches
-- AEAD: `XChaCha20-Poly1305` and `AES-256-GCM`
-
-The `identity` is defined as `SHA256(publicKey)` and is provided as a bech32 string (`hkid…`).
+- Uses `sessionStorage`, so the key persists for the lifetime of the browser tab/window only.
+- The stored value is the bech32-encoded master key, not raw bytes.
+- Calling `auth.logout()` clears the stored key.
 
 ---
 
@@ -142,6 +147,77 @@ const { decrypted } = await auth.decrypt('hkct1…', 'hknc1…', 'hkek1…', 'xc
 ### Verify someone else’s signature (no login required)
 ```js
 const { valid } = await auth.verify('msg', 'hksg1…', 'hkpk1…');
+```
+
+### PassKeys (WebAuthn)
+```js
+// Create/register a new PassKey for a username and login
+await auth.passKeyAuth('alice@example.com');
+console.log(auth.identity); // hkid…
+
+// Use an existing PassKey to login
+await auth.passKeyLogin();
+```
+
+### Session persistence (auto-recall)
+
+```vue
+<script setup>
+import { onMounted } from 'vue'
+import auth from 'hashkeys'
+
+onMounted(() => {
+  auth.recall()
+})
+</script>
+```
+
+---
+
+## Minimal HTML example
+
+This mirrors `public/test.html` but targets consumers of the package. Uses Vue's `watch` to react to auth changes.
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script type="importmap">{ "imports": { "vue": "https://esm.sh/vue" } }</script>
+  </head>
+  <body>
+    <div id="app">
+      <input id="input" placeholder="passphrase" />
+      <button id="login" disabled>LOGIN</button>
+      <button id="get-key" disabled>GET KEY</button>
+      <pre id="id"></pre>
+      <pre id="master"></pre>
+    </div>
+    <script type="module">
+      import { watch } from 'vue';
+      import auth from 'hashkeys';
+
+      document.getElementById('get-key').addEventListener('click', async () => {
+        document.getElementById('master').textContent = await auth.getMasterKey();
+      });
+
+      document.getElementById('input').addEventListener('input', (e) => {
+        document.getElementById('login').disabled = !e.target.value;
+      });
+
+      document.getElementById('login').addEventListener('click', () => {
+        auth.login(document.getElementById('input').value);
+      });
+
+      watch(auth, ({ authenticated, identity }) => {
+        if (authenticated) {
+          document.getElementById('id').textContent = identity;
+          document.getElementById('get-key').disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
 ```
 
 ---

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import auth from './useAuth.js'
 
 // App state
@@ -181,6 +181,10 @@ const copy = (text) => {
 async function createPK() {
   auth.passKeyAuth(await window.prompt('New passkey username'))
 }
+
+onMounted(() => {
+  auth.recall()
+})
 </script>
 
 <template lang="pug">
