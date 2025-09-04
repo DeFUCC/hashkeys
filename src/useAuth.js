@@ -4,7 +4,8 @@ import { bech32 } from '@scure/base';
 import { PassKeyLogin, PassKeyAuth } from './usePassKeys';
 
 const worker = new AuthWorker();
-const SESSION_KEY = 'hk.masterKey';
+let clientAppPrefix = 'hk'; // default; can be changed via init()
+const sessionKeyFor = (prefix) => `${prefix}.masterKey`;
 let requestId = 0;
 const pending = new Map();
 
@@ -25,14 +26,26 @@ export const auth = reactive({
   encryptionKey: null,
   curve: null,
 
+  async init({ appPrefix } = {}) {
+    // allow consumer to set a 2-letter lowercase prefix before login
+    const requested = typeof appPrefix === 'string' ? appPrefix.trim().toLowerCase() : '';
+    if (requested) {
+      // optimistically set local, will confirm after worker init
+      clientAppPrefix = requested;
+    }
+    const res = await send('init', requested ? { appPrefix: requested } : {});
+    if (res?.appPrefix) clientAppPrefix = res.appPrefix;
+    return res;
+  },
+
   async passKeyAuth(name) {
     const rawId = await PassKeyAuth(name);
-    return rawId ? this.login(bech32.encode('hkwa', bech32.toWords(new Uint8Array(rawId)))) : false;
+    return rawId ? this.login(bech32.encode(`${clientAppPrefix}wa`, bech32.toWords(new Uint8Array(rawId)))) : false;
   },
 
   async passKeyLogin() {
     const rawId = await PassKeyLogin();
-    return rawId ? this.login(bech32.encode('hkwa', bech32.toWords(new Uint8Array(rawId)))) : false;
+    return rawId ? this.login(bech32.encode(`${clientAppPrefix}wa`, bech32.toWords(new Uint8Array(rawId)))) : false;
   },
 
   async login(password) {
@@ -66,13 +79,21 @@ export const auth = reactive({
   getMasterKey: () => (auth.requireAuth(), send('get-master-key')),
 
   async recall() {
-    const stored = sessionStorage.getItem(SESSION_KEY);
+    // Try current prefix, then legacy 'hk'
+    const preferred = sessionStorage.getItem(sessionKeyFor(clientAppPrefix));
+    const legacy = clientAppPrefix !== 'hk' ? sessionStorage.getItem(sessionKeyFor('hk')) : null;
+    const stored = preferred || legacy;
     if (!stored) return false;
     try {
       await this.login(stored);
+      // If legacy key was used under non-hk prefix, re-persist under current and remove legacy
+      if (!preferred && legacy && clientAppPrefix !== 'hk') {
+        sessionStorage.setItem(sessionKeyFor(clientAppPrefix), stored);
+        sessionStorage.removeItem(sessionKeyFor('hk'));
+      }
       return true;
     } catch {
-      sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(sessionKeyFor(clientAppPrefix));
       return false;
     }
   },
@@ -129,9 +150,9 @@ watch(() => auth.authenticated, async (authenticated) => {
   try {
     if (authenticated) {
       const mk = await auth.getMasterKey();
-      if (mk) sessionStorage.setItem(SESSION_KEY, mk);
+      if (mk) sessionStorage.setItem(sessionKeyFor(clientAppPrefix), mk);
     } else {
-      sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(sessionKeyFor(clientAppPrefix));
     }
   } catch { }
 });

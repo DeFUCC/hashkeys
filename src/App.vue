@@ -5,6 +5,8 @@ import auth from './useAuth.js'
 const passphrase = ref('demo-password-123')
 const activeTab = ref('sign')
 
+const appPrefix = ref('hk')
+
 const demoData = reactive({
   // Signing
   signText: 'Hello, cryptographic world!',
@@ -41,6 +43,7 @@ const tabs = [
 ]
 
 const login = async () => {
+  await auth.init({ appPrefix: appPrefix.value })
   await auth.login(passphrase.value)
   if (auth.authenticated) {
     passphrase.value = ''
@@ -196,18 +199,18 @@ onMounted(() => {
     .rounded-xl(v-if="!auth.authenticated")
       .text-center.flex.flex-col.items-center.gap-4
         .flex.flex-wrap.gap-4
-          button.p-2.rounded-lg.hover-bg-blue-400.bg-blue-500.transition(
+          button.p-2.px-4.hover-bg-yellow-300.bg-yellow-400.transition(
             type="button" 
             @click="createPK()"
             :disabled="auth.loading"
-            ) 🫆   Create PassKey
-          button.p-2.rounded-lg.hover-bg-blue-400.bg-blue-500.transition(
+            ) Create PassKey
+          button.p-2.px-4.hover-bg-orange-300.bg-orange-400.transition(
             type="button" 
             @click="auth.passKeyLogin()"
             :disabled="auth.loading"
-            ) 🫆   Use PassKey
+            ) Use PassKey
         form.flex.flex-col.items-center.gap-3.max-w-sm.mx-auto(@submit.prevent.stop="login")
-          input.text-center.px-4.py-3.border.rounded-lg.focus-ring(
+          input.text-center.px-4.py-3.border.focus-ring(
           v-model="passphrase" 
             type="password" 
             placeholder="Enter passphrase"
@@ -215,7 +218,7 @@ onMounted(() => {
             :disabled="auth.loading"
           )
           .flex
-            button.p-2.rounded-lg.hover-bg-green-400.bg-green-500.transition(
+            button.p-2.hover-bg-green-400.bg-green-500.transition(
               type="submit"
               :disabled="auth.loading"
               )  {{ auth.loading ? 'Logging in...' : 'Login' }}
@@ -228,10 +231,10 @@ onMounted(() => {
         div
           .flex.p-2.gap-2
             h4.text-lg.font-medium.flex-auto Cryptographic Identity 
-            button.py-1.px-2.text-white.rounded-lg.bg-red-800.hover-bg-red-500.active-bg-red-400.ml-auto(
+            button.py-1.px-2.text-white.bg-red-800.hover-bg-red-500.active-bg-red-400.ml-auto(
               @click="logout"
             ) 🚪 Logout
-          .bg-gray-50.border.rounded-lg.p-4
+          .bg-gray-50.border.p-4
             .grid.grid-cols-1.md-grid-cols-2.gap-4
               div
                 .text-sm.text-gray-600 Identity Hash:
@@ -249,12 +252,12 @@ onMounted(() => {
       .p-4.flex.flex-col.gap-4
         .flex.items-center.justify-between.mb-3
           h4.text-lg.font-medium Master Key Export
-          button.px-4.py-2.bg-yellow-600.text-white.rounded-lg.hover-bg-yellow-700(
+          button.px-4.py-2.bg-yellow-600.text-white.hover-bg-yellow-700(
             @click="showMasterKey"
           ) 🔑 Reveal Master Key
 
         div(v-if="demoData.masterKey")
-          .bg-yellow-50.border.border-yellow-200.rounded-lg.p-4
+          .bg-yellow-50.border.border-yellow-200.p-4
             .font-medium.text-yellow-800 ⚠️ Keep this secret and safe!
             .mt-2
               .font-mono.text-xs.bg-white.p-3.rounded.break-all {{ demoData.masterKey }}

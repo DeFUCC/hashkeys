@@ -12,8 +12,8 @@ import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/curves/utils.js';
 
-const appPrefix = 'hk';            // base HRP
-const versionSalt = 'hk_v1';       // KDF salt/version
+let appPrefix = 'hk';            // base HRP (mutable via init)
+let versionSalt = `${appPrefix}_v1`;       // KDF salt/version (ties to prefix)
 const CURVE_TYPE = 'ed25519';      // 'ed25519' | 'secp256k1'
 
 // Standard short tags (HRP = appPrefix + tag)
@@ -117,6 +117,23 @@ self.onmessage = async (e) => {
 };
 
 const handlers = {
+  init(id, data) {
+    const requested = (data && typeof data.appPrefix === 'string') ? data.appPrefix.trim().toLowerCase() : '';
+    if (requested) {
+      if (!/^[a-z]{2}$/.test(requested)) {
+        self.postMessage({ id, success: false, error: 'appPrefix must be exactly 2 lowercase letters' });
+        return;
+      }
+      appPrefix = requested;
+      versionSalt = `${appPrefix}_v1`;
+    } else {
+      // keep defaults
+      appPrefix = appPrefix || 'hk';
+      versionSalt = `${appPrefix}_v1`;
+    }
+    self.postMessage({ id, type: 'init', success: true, result: { appPrefix, versionSalt } });
+  },
+
   async auth(id, data) {
     if (!data) {
       self.postMessage({ id, success: false, error: 'No auth data provided' });
