@@ -199,18 +199,19 @@ onMounted(() => {
     .rounded-xl(v-if="!auth.authenticated")
       .text-center.flex.flex-col.items-center.gap-4
         .flex.flex-wrap.gap-4
-          button.p-2.px-4.hover-bg-yellow-300.bg-yellow-400.transition(
+          button.hover-bg-yellow-300.bg-yellow-400.transition(
             type="button" 
             @click="createPK()"
             :disabled="auth.loading"
             ) Create PassKey
-          button.p-2.px-4.hover-bg-orange-300.bg-orange-400.transition(
+          button.hover-bg-orange-300.bg-orange-400.transition(
             type="button" 
             @click="auth.passKeyLogin()"
             :disabled="auth.loading"
             ) Use PassKey
-        form.flex.flex-col.items-center.gap-3.max-w-sm.mx-auto(@submit.prevent.stop="login")
-          input.text-center.px-4.py-3.border.focus-ring(
+        p or
+        form.flex.flex-col.items-center.gap-3.max-w-sm.w-full(@submit.prevent.stop="login")
+          textarea.w-full.text-center.px-4.py-3.border.focus-ring(
           v-model="passphrase" 
             type="password" 
             placeholder="Enter passphrase"
@@ -218,73 +219,70 @@ onMounted(() => {
             :disabled="auth.loading"
           )
           .flex
-            button.p-2.hover-bg-green-400.bg-green-500.transition(
+            button.hover-bg-green-400.bg-green-500.transition(
               type="submit"
               :disabled="auth.loading"
-              )  {{ auth.loading ? 'Logging in...' : 'Login' }}
+              )  {{ auth.loading ? 'Deriving...' : 'Derive' }}
 
         .text-red-500.mt-2(v-if="auth.error") {{ auth.error }}
 
 
     .flex.flex-col.gap-4(v-else)
-      .p-0
-        div
-          .flex.p-2.gap-2
-            h4.text-lg.font-medium.flex-auto Cryptographic Identity 
-            button.py-1.px-2.text-white.bg-red-800.hover-bg-red-500.active-bg-red-400.ml-auto(
-              @click="logout"
-            ) 🚪 Logout
-          .bg-gray-50.border.p-4
-            .grid.grid-cols-1.md-grid-cols-2.gap-4
-              div
-                .text-sm.text-gray-600 Identity Hash:
-                .font-mono.text-xs.mt-1.break-all {{ auth.identity }}
-              div
-                .text-sm.text-gray-600 Public Key:
-                .font-mono.text-xs.mt-1.break-all {{ auth.publicKey }}
-              div
-                .text-sm.text-gray-600 Curve:
-                .font-mono.text-xs.mt-1 {{ auth.curve || 'ed25519' }}
-              div
-                .text-sm.text-gray-600 Encryption Key:
-                .font-mono.text-xs.mt-1.break-all {{ auth.encryptionKey || 'Same as public key' }}
+      .flex.gap-2
+        h4.text-lg.font-medium.flex-auto Cryptographic Identity 
+        button.text-white.bg-red-800.hover-bg-red-500.active-bg-red-400.ml-auto(
+          @click="logout"
+        ) Exit
+      .bg-gray-50.border.p-4
+        .grid.grid-cols-1.md-grid-cols-2.gap-4
+          div
+            .text-sm.text-gray-600 Identity Hash:
+            .font-mono.text-xs.mt-1.break-all {{ auth.identity }}
+          div
+            .text-sm.text-gray-600 Public Key:
+            .font-mono.text-xs.mt-1.break-all {{ auth.publicKey }}
+          div
+            .text-sm.text-gray-600 Curve:
+            .font-mono.text-xs.mt-1 {{ auth.curve || 'ed25519' }}
+          div
+            .text-sm.text-gray-600 Encryption Key:
+            .font-mono.text-xs.mt-1.break-all {{ auth.encryptionKey || 'Same as public key' }}
 
-      .p-4.flex.flex-col.gap-4
-        .flex.items-center.justify-between.mb-3
+      .flex.flex-col.gap-4
+        .flex.items-center.justify-between
           h4.text-lg.font-medium Master Key Export
-          button.px-4.py-2.bg-yellow-600.text-white.hover-bg-yellow-700(
-            @click="showMasterKey"
-          ) 🔑 Reveal Master Key
+          button.bg-yellow-600.text-white.hover-bg-yellow-700(
+            @click="demoData.masterKey ? demoData.masterKey = null : showMasterKey()"
+          ) {{ demoData.masterKey ? "Hide" : "Reveal" }} Master Key
 
         div(v-if="demoData.masterKey")
           .bg-yellow-50.border.border-yellow-200.p-4
             .font-medium.text-yellow-800 ⚠️ Keep this secret and safe!
             .mt-2
-              .font-mono.text-xs.bg-white.p-3.rounded.break-all {{ demoData.masterKey }}
-              button.mt-2.px-3.py-1.bg-blue-600.text-white.rounded.hover-bg-blue-700(
+              .font-mono.text-xs.bg-white.p-3.rounded.break-all.select-all {{ demoData.masterKey }}
+              button.mt-2.bg-blue-600.text-white.rounded.active-bg-blue-500.hover-bg-blue-700(
                 @click="copy(demoData.masterKey)"
               ) 📋 Copy
 
-        // Key Derivation
-        div
-          .flex.items-center.justify-between.mb-3
-            h4.text-lg.font-medium Key Derivation
-            button.px-4.py-2.bg-green-600.text-white.rounded-lg.hover-bg-green-700(
-              @click="deriveCustomKey"
-            ) ➕ Derive New Key
 
-          .space-y-2(v-if="demoData.derivedKeys.length")
-            div.bg-gray-50.border.rounded-lg.p-3(
-              v-for="(key, i) in demoData.derivedKeys" :key="i"
-            )
-              .text-sm.text-gray-600 Context: 
-                code {{ key.context }}
-              .font-mono.text-xs.mt-1 {{ key.key }}
+        .flex.items-center.justify-between
+          h4.text-lg.font-medium Key Derivation
+          button.bg-green-600.text-white.hover-bg-green-700(
+            @click="deriveCustomKey"
+          ) Derive New Key
 
+        .space-y-2(v-if="demoData.derivedKeys.length")
+          div.bg-gray-50.border.p-3(
+            v-for="(key, i) in demoData.derivedKeys" :key="i"
+          )
+            .text-sm.text-gray-600 Context: 
+              code {{ key.context }}
+            .font-mono.text-xs.mt-1 {{ key.key }}
 
 
-      .flex.flex-wrap.gap-2.mb-6.justify-center
-        button.px-4.py-2.rounded-lg.transition.font-medium(
+
+      .flex.flex-wrap.gap-2.mb-6.justify-stretch.w-full
+        button.transition.font-medium.flex-auto(
           v-for="tab in tabs" :key="tab.id"
           @click="activeTab = tab.id"
           :class="activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-white hover-bg-blue-50'"
@@ -292,7 +290,7 @@ onMounted(() => {
 
 
       // Tab Content
-      .bg-white.rounded-xl.shadow-lg.p-6
+      .bg-white.shadow-lg.p-6
 
         // Signing Tab
         div(v-show="activeTab === 'sign'")
@@ -300,18 +298,18 @@ onMounted(() => {
           .space-y-4
             div
               label.block.font-medium.mb-2 Message to Sign:
-              textarea.w-full.p-3.border.rounded-lg.resize-none(
+              textarea.w-full.p-3.border.resize-none(
                 v-model="demoData.signText" 
                 rows="3"
                 placeholder="Enter message to sign..."
               )
 
-            button.px-6.py-2.bg-green-600.text-white.rounded-lg.hover-bg-green-700(
+            button.bg-green-600.text-white.hover-bg-green-700(
               @click="signDemo"
             ) 🖊️ Sign Message
 
             div(v-if="demoData.signResult")
-              .bg-green-50.border.border-green-200.rounded-lg.p-4
+              .bg-green-50.border.border-green-200.p-4
                 .font-medium.text-green-800 ✅ Signature Created
                 .mt-2.space-y-2
                   div
@@ -327,28 +325,28 @@ onMounted(() => {
           .space-y-4
             div
               label.block.font-medium.mb-2 Message:
-              textarea.w-full.p-3.border.rounded-lg(v-model="demoData.verifyText" rows="2")
+              textarea.w-full.p-3.border(v-model="demoData.verifyText" rows="2")
 
             div
               label.block.font-medium.mb-2 Signature:
-              input.w-full.p-3.border.rounded-lg.font-mono.text-xs(
+              input.w-full.p-3.border.font-mono.text-xs(
                 v-model="demoData.verifySignature"
                 placeholder="Paste signature bech32 igsg..."
               )
 
             div
               label.block.font-medium.mb-2 Public Key:
-              input.w-full.p-3.border.rounded-lg.font-mono.text-xs(
+              input.w-full.p-3.border.font-mono.text-xs(
                 v-model="demoData.verifyPublicKey"
                 placeholder="Paste public key bech32 igpk... (or leave empty to use yours)"
               )
 
-            button.px-6.py-2.bg-blue-600.text-white.rounded-lg.hover-bg-blue-700(
+            button.bg-blue-600.text-white.hover-bg-blue-700(
               @click="verifyDemo"
             ) 🔍 Verify Signature
 
             div(v-if="demoData.verifyResult !== null")
-              .border.rounded-lg.p-4(
+              .border.p-4(
                 :class="demoData.verifyResult.valid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'"
               )
                 .font-medium(
@@ -361,24 +359,24 @@ onMounted(() => {
           .space-y-4
             div
               label.block.font-medium.mb-2 Data to Encrypt:
-              textarea.w-full.p-3.border.rounded-lg(
+              textarea.w-full.p-3.border(
                 v-model="demoData.encryptText" 
                 rows="3"
                 placeholder="Enter sensitive data..."
               )
 
             .flex.gap-2
-              button.px-6.py-2.bg-purple-600.text-white.rounded-lg.hover-bg-purple-700(
+              button.px-6.py-2.bg-purple-600.text-white.hover-bg-purple-700(
                 @click="encryptDemo"
               ) 🔐 Encrypt
 
-              button.px-6.py-2.bg-orange-600.text-white.rounded-lg.hover-bg-orange-700(
+              button.px-6.py-2.bg-orange-600.text-white.hover-bg-orange-700(
                 @click="decryptDemo"
                 :disabled="!demoData.encryptResult"
               ) 🔓 Decrypt
 
             div(v-if="demoData.encryptResult")
-              .bg-blue-50.border.border-blue-200.rounded-lg.p-4
+              .bg-blue-50.border.border-blue-200.p-4
                 .font-medium.text-blue-800 🔐 Encrypted Data
                 .mt-2.space-y-2
                   div
@@ -389,7 +387,7 @@ onMounted(() => {
                     .font-mono.text-xs.bg-white.p-2.rounded {{ demoData.encryptResult.nonce }}
 
             div(v-if="demoData.decryptResult")
-              .bg-green-50.border.border-green-200.rounded-lg.p-4
+              .bg-green-50.border.border-green-200.p-4
                 .font-medium.text-green-800 ✅ Decrypted Data
                 .mt-2.bg-white.p-3.rounded.font-mono {{ demoData.decryptResult.decrypted }}
 
@@ -399,7 +397,7 @@ onMounted(() => {
           .space-y-4
             div
               label.block.font-medium.mb-2 Peer's Public Key:
-              input.w-full.p-3.border.rounded-lg.font-mono.text-xs(
+              input.w-full.p-3.border.font-mono.text-xs(
                 v-model="demoData.peerPublicKey"
                 placeholder="Paste peer's public key (igpk... or igek...) for E2E encryption..."
               )
@@ -407,35 +405,35 @@ onMounted(() => {
                 code.bg-gray-100.px-1.rounded {{ auth.publicKey?.slice(0, 20) }}...
                 button.ml-2.text-blue-600.hover-underline(@click="copy(auth.publicKey)") copy
 
-            button.px-6.py-2.bg-indigo-600.text-white.rounded-lg.hover-bg-indigo-700(
+            button.px-6.py-2.bg-indigo-600.text-white.hover-bg-indigo-700(
               @click="setupP2P"
               :disabled="!demoData.peerPublicKey"
             ) 🔗 Setup Secure Channel
 
             div(v-if="demoData.p2pChannel")
-              .bg-green-50.border.border-green-200.rounded-lg.p-4.mb-4
+              .bg-green-50.border.border-green-200.p-4.mb-4
                 .font-medium.text-green-800 ✅ Secure channel established!
 
               div
                 label.block.font-medium.mb-2 Secret Message:
-                textarea.w-full.p-3.border.rounded-lg(
+                textarea.w-full.p-3.border(
                   v-model="demoData.p2pMessage"
                   rows="2"
                   placeholder="Enter message to encrypt for peer..."
                 )
 
               .flex.gap-2
-                button.px-6.py-2.bg-pink-600.text-white.rounded-lg.hover-bg-pink-700(
+                button.px-6.py-2.bg-pink-600.text-white.hover-bg-pink-700(
                   @click="sendP2P"
                 ) 📤 Encrypt Message
 
-                button.px-6.py-2.bg-emerald-600.text-white.rounded-lg.hover-bg-emerald-700(
+                button.px-6.py-2.bg-emerald-600.text-white.hover-bg-emerald-700(
                   @click="decryptP2P"
                   :disabled="!demoData.p2pResult"
                 ) 📥 Decrypt Envelope
 
               div(v-if="demoData.p2pResult")
-                .bg-pink-50.border.border-pink-200.rounded-lg.p-4.mt-4
+                .bg-pink-50.border.border-pink-200.p-4.mt-4
                   .font-medium.text-pink-800 📦 Encrypted Message Envelope
                   .mt-2.space-y-2
                     div
@@ -446,7 +444,7 @@ onMounted(() => {
                       .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.p2pResult.ciphertext.slice(0, 60) }}...
 
               div(v-if="demoData.p2pDecrypted")
-                .bg-emerald-50.border.border-emerald-200.rounded-lg.p-4.mt-4
+                .bg-emerald-50.border.border-emerald-200.p-4.mt-4
                   .font-medium.text-emerald-800 ✅ Decrypted P2P Message
                   .mt-2.bg-white.p-3.rounded.font-mono {{ demoData.p2pDecrypted }}
 
@@ -458,7 +456,7 @@ onMounted(() => {
 
 </template>
 
-<style>
+<style lang="postcss">
 .hover-scale-105:hover {
   transform: scale(1.05);
 }
@@ -469,5 +467,9 @@ onMounted(() => {
 
 .transition {
   transition: all 0.2s ease;
+}
+
+#app button {
+  @apply py-2 px-4 shadow-sm hover-shadow-lg transition;
 }
 </style>
