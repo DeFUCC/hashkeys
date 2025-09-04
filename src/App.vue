@@ -1,9 +1,11 @@
 <script setup>
 import { ref, computed, reactive, onMounted } from 'vue'
 import auth from './useAuth.js'
+import AuthWorker from './auth-worker.js?worker&inline'
+import { useStorage } from '@vueuse/core'
 
-const passphrase = ref('demo-password-123')
-const activeTab = ref('sign')
+const passphrase = ref(' Your long passphrase to derive a key from it or your previously exported master key')
+const activeTab = useStorage('activeTab', 'sign')
 
 const appPrefix = ref('hk')
 
@@ -30,15 +32,22 @@ const demoData = reactive({
   p2pChannel: null,
   p2pDecrypted: null,
 
+  // P2P: local Alice demo
+  toAliceMessage: 'Hello Alice! \\\o/',
+  toAliceEnvelope: null,
+  toAliceDecryptedByAlice: null,
+  fromAliceMessage: 'Hi! Alice here. Nice to meet you!',
+  fromAliceEnvelope: null,
+  fromAliceDecryptedByMe: null,
+
   // Identity
   masterKey: null,
   derivedKeys: []
 })
 
 const tabs = [
-  { id: 'sign', name: 'Sign', icon: '📝' },
-  { id: 'verify', name: 'Verify', icon: '🔍' },
-  { id: 'encrypt', name: 'Encrypt', icon: '🔒' },
+  { id: 'sign', name: 'Sign/Verify', icon: '📝' },
+  { id: 'encrypt', name: 'Encrypt/Decrypt', icon: '🔒' },
   { id: 'p2p', name: 'P2P', icon: '🤝' }
 ]
 
@@ -109,35 +118,7 @@ const decryptDemo = async () => {
   }
 }
 
-const setupP2P = async () => {
-  if (!demoData.peerPublicKey) return
-  try {
-    // Minimal secure channel using recipient's public key with X25519 + XChaCha20-Poly1305
-    demoData.p2pChannel = {
-      async send(message) {
-        const res = await auth.encrypt(message, demoData.peerPublicKey)
-        return {
-          from: auth.publicKey,
-          ciphertext: res.ciphertext,
-          nonce: res.nonce,
-          algorithm: res.algorithm
-        }
-      }
-    }
-  } catch (error) {
-    console.error('P2P setup failed:', error)
-  }
-}
 
-const sendP2P = async () => {
-  if (!demoData.p2pChannel) return
-  try {
-    demoData.p2pResult = await demoData.p2pChannel.send(demoData.p2pMessage)
-    demoData.p2pDecrypted = null
-  } catch (error) {
-    console.error('P2P send failed:', error)
-  }
-}
 
 const decryptP2P = async () => {
   const env = demoData.p2pResult
@@ -159,13 +140,13 @@ const showMasterKey = async () => {
   }
 }
 
-const deriveCustomKey = async () => {
+async function deriveCustomKey(context) {
+  if (!context) return
   try {
-    const context = `app_${Date.now()}`
     const result = await auth.deriveKey(context, 32)
     demoData.derivedKeys.push({
       context,
-      key: result.derivedKey.slice(0, 32) + '...'
+      key: result.derivedKey
     })
   } catch (error) {
     console.error('Key derivation failed:', error)
@@ -183,6 +164,137 @@ async function createPK() {
 onMounted(() => {
   auth.recall()
 })
+
+const customApp = ref('')
+
+// --- Local Alice peer (second account) ---
+const alice = reactive({
+  worker: null,
+  loading: false,
+  error: null,
+  authenticated: false,
+  publicKey: null,
+  encryptionKey: null,
+  identity: null,
+})
+
+let aliceReqId = 0
+const alicePending = new Map()
+
+function aliceSend(type, data = null) {
+  const id = ++aliceReqId
+  return new Promise((resolve, reject) => {
+    alicePending.set(id, { resolve, reject })
+    alice.worker.postMessage({ id, type, data })
+  })
+}
+
+function ensureAliceWorker() {
+  if (alice.worker) return
+  alice.worker = new AuthWorker()
+  alice.worker.onmessage = ({ data: { id, success, error, type, result } }) => {
+    if (success && type === 'auth' && result?.authenticated) {
+      Object.assign(alice, {
+        loading: false,
+        authenticated: true,
+        publicKey: result.publicKey,
+        identity: result.identity,
+        encryptionKey: result.encryptionKey || result.publicKey,
+        error: null,
+      })
+    } else if (success && (type === 'logout' || (type === 'auth' && !result?.authenticated))) {
+      Object.assign(alice, {
+        loading: false,
+        authenticated: false,
+        publicKey: null,
+        identity: null,
+        encryptionKey: null,
+        error: null,
+      })
+    }
+
+    if (alicePending.has(id)) {
+      const { resolve, reject } = alicePending.get(id)
+      alicePending.delete(id)
+      if (success) resolve(result)
+      else { alice.error = error || 'Alice worker error'; reject(new Error(alice.error)) }
+    }
+  }
+  alice.worker.onerror = (err) => {
+    console.error('Alice worker error:', err)
+    alice.error = 'Alice crypto worker failed'
+    alice.loading = false
+  }
+}
+
+async function spawnAlice() {
+  try {
+    ensureAliceWorker()
+    alice.loading = true
+    alice.error = null
+    // Mirror current app prefix so bech32 tags match
+    await aliceSend('init', { appPrefix: appPrefix.value })
+    // Use a random secret for Alice
+    const rand = crypto.getRandomValues(new Uint8Array(16))
+    const secret = Array.from(rand).map(b => b.toString(16).padStart(2, '0')).join('')
+    await aliceSend('auth', `alice-${secret}`)
+  } catch (e) {
+    console.error(e)
+    alice.error = e.message || String(e)
+    alice.loading = false
+  }
+}
+
+function useAliceKeyAsPeer() {
+  if (alice.encryptionKey) demoData.peerPublicKey = alice.encryptionKey
+}
+
+// Encrypt to Alice with our account, then have Alice decrypt locally
+async function sendToAlice() {
+  if (!auth.authenticated || !alice.encryptionKey) return
+  try {
+    const env = await auth.encrypt(demoData.toAliceMessage, alice.encryptionKey)
+    demoData.toAliceEnvelope = { ...env, from: auth.encryptionKey || auth.publicKey }
+    demoData.toAliceDecryptedByAlice = null
+  } catch (e) {
+    console.error('sendToAlice failed:', e)
+  }
+}
+
+async function aliceDecryptLast() {
+  const env = demoData.toAliceEnvelope
+  if (!env) return
+  try {
+    const res = await aliceSend('decrypt', { ciphertext: env.ciphertext, nonce: env.nonce, senderPublicKey: env.from, algorithm: env.algorithm })
+    demoData.toAliceDecryptedByAlice = res.decrypted
+  } catch (e) {
+    console.error('aliceDecryptLast failed:', e)
+  }
+}
+
+// Alice replies to us; then we decrypt with our account
+async function aliceReply() {
+  if (!alice.authenticated || !auth.publicKey) return
+  try {
+    const env = await aliceSend('encrypt', { data: demoData.fromAliceMessage, recipientPublicKey: auth.encryptionKey || auth.publicKey, algorithm: 'xchacha20poly1305' })
+    demoData.fromAliceEnvelope = { ...env, from: alice.encryptionKey || alice.publicKey }
+    demoData.fromAliceDecryptedByMe = null
+  } catch (e) {
+    console.error('aliceReply failed:', e)
+  }
+}
+
+async function decryptFromAlice() {
+  const env = demoData.fromAliceEnvelope
+  if (!env) return
+  try {
+    const res = await auth.decrypt(env.ciphertext, env.nonce, env.from, env.algorithm)
+    demoData.fromAliceDecryptedByMe = res.decrypted
+  } catch (e) {
+    console.error('decryptFromAlice failed:', e)
+  }
+}
+
 </script>
 
 <template lang="pug">
@@ -196,23 +308,26 @@ onMounted(() => {
 
       .text-gray-500 Reactive cryptography for web-apps and p2p identity
 
-    .rounded-xl(v-if="!auth.authenticated")
+
+
+    .rounded(v-if="!auth.authenticated")
       .text-center.flex.flex-col.items-center.gap-4
         .flex.flex-wrap.gap-4
           button.hover-bg-yellow-300.bg-yellow-400.transition(
             type="button" 
             @click="createPK()"
             :disabled="auth.loading"
-            ) Create PassKey
+            ) Create Passkey
           button.hover-bg-orange-300.bg-orange-400.transition(
             type="button" 
             @click="auth.passKeyLogin()"
             :disabled="auth.loading"
-            ) Use PassKey
-        p or
+            ) Use Passkey
+        p - or -
         form.flex.flex-col.items-center.gap-3.max-w-sm.w-full(@submit.prevent.stop="login")
           textarea.w-full.text-center.px-4.py-3.border.focus-ring(
           v-model="passphrase" 
+            rows="5"
             type="password" 
             placeholder="Enter passphrase"
             @keyup.enter="login"
@@ -222,9 +337,39 @@ onMounted(() => {
             button.hover-bg-green-400.bg-green-500.transition(
               type="submit"
               :disabled="auth.loading"
-              )  {{ auth.loading ? 'Deriving...' : 'Derive' }}
+              )  {{ auth.loading ? 'Deriving...' : 'Derive a key' }}
 
         .text-red-500.mt-2(v-if="auth.error") {{ auth.error }}
+
+        .flex.flex-col.gap-2.bg-white.border.rounded.p-5.text-left.max-w-2xl.mt-6
+          h3.text-xl.font-semibold.mb-2 🚀 Get started
+          p.text-gray-600.mb-3 Small, reactive crypto toolkit for Vue apps and local-first P2P identity.
+          .flex.flex-wrap.gap-3.mb-4
+            a.bg-black.text-white.p-2.rounded.hover-opacity-85.flex.items-center.gap-2(target="_blank" href="https://www.npmjs.com/package/hashkeys")
+              .i-lucide-box
+              span hashkeys
+            a.bg-gray-800.text-white.px-3.py-1.rounded.hover-opacity-85.flex.items-center.gap-2(target="_blank" href="https://github.com/DeFUCC/hashkeys")
+              .i-lucide-github
+              span DeFUCC/hashkeys
+          h4.text-xl.font-medium.mb-1 Install
+          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.select-all npm i hashkeys
+          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.select-all import auth from 'hashkeys'
+          h4.text-xl.font-medium.mb-1 Basics
+          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.
+            // Sign and verify
+            const { signature, publicKey } = await auth.sign('hello world');
+            const { valid } = await auth.verify('hello world', signature, publicKey);
+          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.
+            // Encrypt for yourself, then decrypt
+            const { ciphertext, nonce } = await auth.encrypt('my secret');
+            const { decrypted } = await auth.decrypt(ciphertext, nonce);
+          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.
+            // P2P: encrypt to a peer (X25519), then peer decrypts
+            const env = await auth.encrypt('hi peer', 'hkek1…'); // recipient's encryption key
+            // send to peer: include your sender key for E2E
+            const envelope = { ...env, from: auth.encryptionKey || auth.publicKey };
+            // on the receiver:
+            const msg = await auth.decrypt(envelope.ciphertext, envelope.nonce, envelope.from, envelope.algorithm)
 
 
     .flex.flex-col.gap-4(v-else)
@@ -265,19 +410,20 @@ onMounted(() => {
               ) 📋 Copy
 
 
-        .flex.items-center.justify-between
+        .flex.items-center.justify-between.gap-2
           h4.text-lg.font-medium Key Derivation
-          button.bg-green-600.text-white.hover-bg-green-700(
-            @click="deriveCustomKey"
-          ) Derive New Key
+          input.min-w-2px.p-2(v-model="customApp" placeholder="Your context name")
+          button.bg-green-600.text-white.hover-bg-green-700.disabled-op-50(
+            @click="deriveCustomKey(customApp)" :disabled="!customApp"
+          ) New App Key
 
         .space-y-2(v-if="demoData.derivedKeys.length")
           div.bg-gray-50.border.p-3(
             v-for="(key, i) in demoData.derivedKeys" :key="i"
-          )
+            )
             .text-sm.text-gray-600 Context: 
               code {{ key.context }}
-            .font-mono.text-xs.mt-1 {{ key.key }}
+            .font-mono.text-xs.py-4.overflow-x-scroll {{ key.key }}
 
 
 
@@ -286,14 +432,14 @@ onMounted(() => {
           v-for="tab in tabs" :key="tab.id"
           @click="activeTab = tab.id"
           :class="activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-white hover-bg-blue-50'"
-        ) {{ tab.icon }} {{ tab.name }}
+          ) {{ tab.icon }} {{ tab.name }}
 
 
       // Tab Content
       .bg-white.shadow-lg.p-6
 
-        // Signing Tab
-        div(v-show="activeTab === 'sign'")
+
+        .flex.flex-col.gap-2(v-show="activeTab === 'sign'")
           h3.text-2xl.mb-4 ✍️ Digital Signatures
           .space-y-4
             div
@@ -319,8 +465,7 @@ onMounted(() => {
                     .text-sm.text-gray-600 Public Key:
                     .font-mono.text-xs.bg-gray-100.p-2.rounded.break-all {{ demoData.signResult.publicKey }}
 
-        // Verify Tab  
-        div(v-show="activeTab === 'verify'")
+
           h3.text-2xl.mb-4 ✅ Signature Verification
           .space-y-4
             div
@@ -381,7 +526,7 @@ onMounted(() => {
                 .mt-2.space-y-2
                   div
                     .text-sm.text-gray-600 Cipher:
-                    .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.encryptResult.ciphertext.slice(0, 100) }}...
+                    .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.encryptResult.ciphertext }}
                   div
                     .text-sm.text-gray-600 Nonce:
                     .font-mono.text-xs.bg-white.p-2.rounded {{ demoData.encryptResult.nonce }}
@@ -391,72 +536,68 @@ onMounted(() => {
                 .font-medium.text-green-800 ✅ Decrypted Data
                 .mt-2.bg-white.p-3.rounded.font-mono {{ demoData.decryptResult.decrypted }}
 
-        // P2P Tab
-        div(v-show="activeTab === 'p2p'")
+        .flex.flex-col.gap-4(v-show="activeTab === 'p2p'")
           h3.text-2xl.mb-4 🤝 P2P Secure Channel
-          .space-y-4
-            div
-              label.block.font-medium.mb-2 Peer's Public Key:
-              input.w-full.p-3.border.font-mono.text-xs(
-                v-model="demoData.peerPublicKey"
-                placeholder="Paste peer's public key (igpk... or igek...) for E2E encryption..."
-              )
-              .text-sm.text-gray-500.mt-1 Your public key: 
-                code.bg-gray-100.px-1.rounded {{ auth.publicKey?.slice(0, 20) }}...
-                button.ml-2.text-blue-600.hover-underline(@click="copy(auth.publicKey)") copy
 
-            button.px-6.py-2.bg-indigo-600.text-white.hover-bg-indigo-700(
-              @click="setupP2P"
-              :disabled="!demoData.peerPublicKey"
-            ) 🔗 Setup Secure Channel
-
-            div(v-if="demoData.p2pChannel")
-              .bg-green-50.border.border-green-200.p-4.mb-4
-                .font-medium.text-green-800 ✅ Secure channel established!
-
+          h3.text-xl.mt-8.mb-2 🧪 Local Alice (second account)
+          .bg-gray-50.border.p-4.rounded
+            .flex.flex-wrap.items-center.gap-2
+              button.bg-slate-800.text-white.hover-bg-slate-700(:disabled="alice.loading || alice.authenticated" @click="spawnAlice" v-if="!alice.authenticated") ▶️ Spawn Alice
+              span.text-sm.text-gray-600(v-if="alice.loading") Starting Alice…
+            .mt-3.grid.grid-cols-1.gap-2(v-if="alice.authenticated")
               div
-                label.block.font-medium.mb-2 Secret Message:
-                textarea.w-full.p-3.border(
-                  v-model="demoData.p2pMessage"
-                  rows="2"
-                  placeholder="Enter message to encrypt for peer..."
-                )
+                .text-sm.text-gray-600 Alice Identity:
+                .font-mono.text-xs.mt-1.break-all {{ alice.identity }}
+              div
+                .text-sm.text-gray-600 Alice Public Key:
+                .font-mono.text-xs.mt-1.break-all {{ alice.publicKey }}
+              div
+                .text-sm.text-gray-600 Alice Encryption Key:
+                .font-mono.text-xs.mt-1.break-all {{ alice.encryptionKey }}
 
-              .flex.gap-2
-                button.px-6.py-2.bg-pink-600.text-white.hover-bg-pink-700(
-                  @click="sendP2P"
-                ) 📤 Encrypt Message
+          h4.text-lg.font-medium You ➜ Alice
 
-                button.px-6.py-2.bg-emerald-600.text-white.hover-bg-emerald-700(
-                  @click="decryptP2P"
-                  :disabled="!demoData.p2pResult"
-                ) 📥 Decrypt Envelope
+          textarea.w-full.p-3.border(v-model="demoData.toAliceMessage" rows="2" placeholder="Type a message for Alice")
+          .flex.gap-2
+            button.bg-pink-600.text-white.hover-bg-pink-700(:disabled="!alice.authenticated" @click="sendToAlice") 📤 Encrypt to Alice
+            button.bg-emerald-600.text-white.hover-bg-emerald-700(:disabled="!demoData.toAliceEnvelope" @click="aliceDecryptLast") 🧩 Alice decrypts
+          div(v-if="demoData.toAliceEnvelope")
+            .text-sm.text-gray-600 Envelope to Alice:
+            .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.toAliceEnvelope.ciphertext }}
+          div(v-if="demoData.toAliceDecryptedByAlice")
+            .bg-emerald-50.border.border-emerald-200.p-3.rounded ✅ Alice read: {{ demoData.toAliceDecryptedByAlice }}
 
-              div(v-if="demoData.p2pResult")
-                .bg-pink-50.border.border-pink-200.p-4.mt-4
-                  .font-medium.text-pink-800 📦 Encrypted Message Envelope
-                  .mt-2.space-y-2
-                    div
-                      .text-sm.text-gray-600 From:
-                      .font-mono.text-xs.bg-white.p-1.rounded {{ demoData.p2pResult.from.slice(0, 20) }}...
-                    div
-                      .text-sm.text-gray-600 Encrypted Payload:
-                      .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.p2pResult.ciphertext.slice(0, 60) }}...
-
-              div(v-if="demoData.p2pDecrypted")
-                .bg-emerald-50.border.border-emerald-200.p-4.mt-4
-                  .font-medium.text-emerald-800 ✅ Decrypted P2P Message
-                  .mt-2.bg-white.p-3.rounded.font-mono {{ demoData.p2pDecrypted }}
+          h4.text-lg.font-medium Alice ➜ You
+          .space-y-2
+            textarea.w-full.p-3.border(v-model="demoData.fromAliceMessage" rows="2" placeholder="Alice's message to you")
+            .flex.gap-2
+              button.bg-indigo-600.text-white.hover-bg-indigo-700(:disabled="!alice.authenticated" @click="aliceReply") 💬 Alice sends
+              button.bg-orange-600.text-white.hover-bg-orange-700(:disabled="!demoData.fromAliceEnvelope" @click="decryptFromAlice") 📨 You decrypt
+            div(v-if="demoData.fromAliceEnvelope")
+              .text-sm.text-gray-600 Envelope from Alice:
+              .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.fromAliceEnvelope.ciphertext }}
+            div(v-if="demoData.fromAliceDecryptedByMe")
+              .bg-blue-50.border.border-blue-200.p-3.rounded ✅ You read: {{ demoData.fromAliceDecryptedByMe }}
 
 
-      .text-center.mt-8.text-gray-500.text-sm
-        p Powered by 
-          a.text-blue-600.hover-underline(href="https://paulmillr.com/noble/" target="_blank") Noble Cryptography
-          |  • Local-first • Zero-trust • Open Source
+  .text-center.mt-4.text-gray-500.text-sm
+    p Powered by 
+      a.text-blue-600.hover-underline(href="https://paulmillr.com/noble/" target="_blank") Noble Cryptography
+      |  • Local-first • Zero-trust • Open Source
 
 </template>
 
 <style lang="postcss">
+#app,
+html,
+body {
+  @apply overscroll-y-none;
+}
+
+pre {
+  @apply max-w-90vw min-w-none
+}
+
 .hover-scale-105:hover {
   transform: scale(1.05);
 }
