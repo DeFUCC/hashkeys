@@ -10,8 +10,6 @@ import { gcm } from '@noble/ciphers/aes.js';
 // Asymmetric cryptography
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-
-// Utils
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/curves/utils.js';
 
 const appPrefix = 'hk';            // base HRP
@@ -34,7 +32,6 @@ const TAG = Object.freeze({
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-// In-memory cryptographic state
 let cryptoState = {
   masterKey: null,
   privateKey: null,

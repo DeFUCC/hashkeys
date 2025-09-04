@@ -5,215 +5,115 @@ import { PassKeyLogin, PassKeyAuth } from './usePassKeys';
 
 const worker = new AuthWorker();
 const SESSION_KEY = 'hk.masterKey';
+let requestId = 0;
+const pending = new Map();
+
+const send = (type, data = null) => {
+  const id = ++requestId;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ id, type, data });
+  });
+};
 
 export const auth = reactive({
   authenticated: false,
   loading: false,
   error: null,
-
   publicKey: null,
   identity: null,
   encryptionKey: null,
   curve: null,
 
-  requestId: 0,
-  pendingRequests: new Map(),
-
   async passKeyAuth(name) {
-    let rawId = await PassKeyAuth(name)
-    if (!rawId) return false;
-    let id = bech32.encode('hkwa', bech32.toWords(new Uint8Array(rawId)));
-    auth.login(id)
+    const rawId = await PassKeyAuth(name);
+    return rawId ? this.login(bech32.encode('hkwa', bech32.toWords(new Uint8Array(rawId)))) : false;
   },
 
   async passKeyLogin() {
-    let rawId = await PassKeyLogin()
-    if (!rawId) return false;
-    let id = bech32.encode('hkwa', bech32.toWords(new Uint8Array(rawId)));
-    auth.login(id)
+    const rawId = await PassKeyLogin();
+    return rawId ? this.login(bech32.encode('hkwa', bech32.toWords(new Uint8Array(rawId)))) : false;
   },
 
   async login(password) {
     this.loading = true;
     this.error = null;
-
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'login' });
-      worker.postMessage({ id, type: 'auth', data: password });
-    });
+    return send('auth', password);
   },
 
   async logout() {
     this.loading = true;
     this.error = null;
-
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'logout' });
-      worker.postMessage({ id, type: 'logout' });
-    });
+    return send('logout');
   },
 
-  async sign(message) {
-    if (!this.authenticated) throw new Error('Not authenticated');
+  sign: (message) => (auth.requireAuth(), send('sign', { message })),
+  verify: (message, signature, publicKey) => send('verify', { message, signature, publicKey }),
 
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'sign' });
-      worker.postMessage({ id, type: 'sign', data: { message } });
-    });
+  encrypt(data, recipientPublicKey = null, algorithm = 'xchacha20poly1305') {
+    this.requireAuth();
+    return send('encrypt', { data, recipientPublicKey, algorithm });
   },
 
-  async verify(message, signature, publicKey) {
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'verify' });
-      worker.postMessage({
-        id,
-        type: 'verify',
-        data: { message, signature, publicKey }
-      });
-    });
+  decrypt(ciphertext, nonce, senderPublicKey = null, algorithm = 'xchacha20poly1305') {
+    this.requireAuth();
+    return send('decrypt', { ciphertext, nonce, senderPublicKey, algorithm });
   },
 
-  async encrypt(data, recipientPublicKey = null, algorithm = 'xchacha20poly1305') {
-    if (!this.authenticated) throw new Error('Not authenticated');
-
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'encrypt' });
-      worker.postMessage({
-        id,
-        type: 'encrypt',
-        data: { data, recipientPublicKey, algorithm }
-      });
-    });
-  },
-
-  async decrypt(ciphertext, nonce, senderPublicKey = null, algorithm = 'xchacha20poly1305') {
-    if (!this.authenticated) throw new Error('Not authenticated');
-
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'decrypt' });
-      worker.postMessage({
-        id,
-        type: 'decrypt',
-        data: { ciphertext, nonce, senderPublicKey, algorithm }
-      });
-    });
-  },
-
-  async deriveKey(context, length = 32) {
-    if (!this.authenticated) throw new Error('Not authenticated');
-
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'deriveKey' });
-      worker.postMessage({
-        id,
-        type: 'derive-key',
-        data: { context, length }
-      });
-    });
-  },
-
-  async getIdentity() {
-    if (!this.authenticated) throw new Error('Not authenticated');
-
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'getIdentity' });
-      worker.postMessage({ id, type: 'get-identity' });
-    });
-  },
-
-  async getPublicKey() {
-    if (!this.authenticated) throw new Error('Not authenticated');
-
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'getPublicKey' });
-      worker.postMessage({ id, type: 'get-public-key' });
-    });
-  },
-
-  async getMasterKey() {
-    if (!this.authenticated) throw new Error('Not authenticated');
-
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      this.pendingRequests.set(id, { resolve, reject, type: 'getMasterKey' });
-      worker.postMessage({ id, type: 'get-master-key' });
-    });
-  },
+  deriveKey: (context, length = 32) => (auth.requireAuth(), send('derive-key', { context, length })),
+  getIdentity: () => (auth.requireAuth(), send('get-identity')),
+  getPublicKey: () => (auth.requireAuth(), send('get-public-key')),
+  getMasterKey: () => (auth.requireAuth(), send('get-master-key')),
 
   async recall() {
+    const stored = sessionStorage.getItem(SESSION_KEY);
+    if (!stored) return false;
     try {
-      const stored = sessionStorage.getItem(SESSION_KEY);
-      if (!stored) return false;
       await this.login(stored);
       return true;
-    } catch (e) {
+    } catch {
       sessionStorage.removeItem(SESSION_KEY);
       return false;
     }
   },
 
-  clearError() {
-    this.error = null;
-  },
+  clearError: () => auth.error = null,
+  requireAuth: () => { if (!auth.authenticated) throw new Error('Not authenticated'); }
 });
 
-const handlers = {
-  auth(data) {
+worker.onmessage = ({ data: { id, success, error, type, result } }) => {
+  if (success && type === 'auth' && result?.authenticated) {
     auth.loading = false;
-
-    if (data.result?.authenticated) {
-      auth.authenticated = true;
-      auth.publicKey = data.result.publicKey;
-      auth.identity = data.result.identity;
-      auth.encryptionKey = data.result.encryptionKey;
-      auth.curve = data.result.curve || null;
-      auth.error = null;
-    } else {
-      auth.authenticated = false;
-      auth.publicKey = null;
-      auth.identity = null;
-      auth.encryptionKey = null;
-      auth.curve = null;
-    }
-  },
-
-  logout(data) {
-    auth.loading = false;
-    auth.authenticated = false;
-    auth.publicKey = null;
-    auth.identity = null;
-    auth.encryptionKey = null;
-    auth.curve = null;
-    auth.error = null;
-  }
-};
-
-worker.onmessage = ({ data }) => {
-  const { id, success, error, type, result } = data;
-
-  if (success && handlers[type]) {
-    handlers[type](data);
+    Object.assign(auth, {
+      authenticated: true,
+      publicKey: result.publicKey,
+      identity: result.identity,
+      encryptionKey: result.encryptionKey,
+      curve: result.curve || null,
+      error: null
+    });
+  } else if (success && (type === 'logout' || type === 'auth' && !result?.authenticated)) {
+    Object.assign(auth, {
+      loading: false,
+      authenticated: false,
+      publicKey: null,
+      identity: null,
+      encryptionKey: null,
+      curve: null,
+      error: null
+    });
   }
 
-  if (id && auth.pendingRequests.has(id)) {
-    const { resolve, reject } = auth.pendingRequests.get(id);
-    auth.pendingRequests.delete(id);
+  // Resolve pending request
+  if (pending.has(id)) {
+    const { resolve, reject } = pending.get(id);
+    pending.delete(id);
 
     if (success) {
       resolve(result);
     } else {
-      const errorMsg = error || 'Unknown error occurred';
-      auth.error = errorMsg;
-      reject(new Error(errorMsg));
+      auth.error = error || 'Unknown error occurred';
+      reject(new Error(auth.error));
     }
   }
 };
@@ -224,23 +124,16 @@ worker.onerror = (error) => {
   auth.loading = false;
 };
 
-// Persist master key in sessionStorage while authenticated
-watch(
-  () => auth.authenticated,
-  async (val) => {
-    try {
-      if (val) {
-        const mk = await auth.getMasterKey();
-        if (typeof mk === 'string' && mk) {
-          sessionStorage.setItem(SESSION_KEY, mk);
-        }
-      } else {
-        sessionStorage.removeItem(SESSION_KEY);
-      }
-    } catch (_) {
-      // ignore persistence errors
+// Persist master key while authenticated
+watch(() => auth.authenticated, async (authenticated) => {
+  try {
+    if (authenticated) {
+      const mk = await auth.getMasterKey();
+      if (mk) sessionStorage.setItem(SESSION_KEY, mk);
+    } else {
+      sessionStorage.removeItem(SESSION_KEY);
     }
-  }
-);
+  } catch { }
+});
 
 export default auth;

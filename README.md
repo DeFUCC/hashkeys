@@ -1,4 +1,4 @@
-# HashKeys — Vue reactive auth and cryptography
+# HashKeys
 
 Reactive Noble cryptography for local‑first apps and p2p identity. `hashkeys` exposes a single Vue 3 reactive object that runs all cryptography in a Web Worker and provides a simple API for:
 

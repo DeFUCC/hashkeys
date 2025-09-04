@@ -2,11 +2,9 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import auth from './useAuth.js'
 
-// App state
 const passphrase = ref('demo-password-123')
-const activeTab = ref('auth')
+const activeTab = ref('sign')
 
-// Demo data
 const demoData = reactive({
   // Signing
   signText: 'Hello, cryptographic world!',
@@ -35,16 +33,13 @@ const demoData = reactive({
   derivedKeys: []
 })
 
-
 const tabs = [
   { id: 'sign', name: 'Sign', icon: '📝' },
   { id: 'verify', name: 'Verify', icon: '🔍' },
   { id: 'encrypt', name: 'Encrypt', icon: '🔒' },
-  { id: 'p2p', name: 'P2P', icon: '🤝' },
-  { id: 'keys', name: 'Keys', icon: '🗝️' }
+  { id: 'p2p', name: 'P2P', icon: '🤝' }
 ]
 
-// Actions
 const login = async () => {
   await auth.login(passphrase.value)
   if (auth.authenticated) {
@@ -179,7 +174,7 @@ const copy = (text) => {
 }
 
 async function createPK() {
-  auth.passKeyAuth(await window.prompt('New passkey username'))
+  auth.passKeyAuth(await window.prompt('Enter your new passkey username'))
 }
 
 onMounted(() => {
@@ -188,23 +183,19 @@ onMounted(() => {
 </script>
 
 <template lang="pug">
-.min-h-screen.bg-gradient-to-br.from-purple-50.to-blue-50.p-4
+.min-h-screen.bg-stone-200.p-4.font-mono
 
-  .max-w-4xl.mx-auto
-
-    // Header
+  .max-w-2xl.mx-auto
     .text-center.mb-8.flex.flex-col.gap-2
-      h1.text-5xl.font-bold #Keys
-      p.text-gray-500(v-if="!auth.authenticated") Reactive crypto-keys for local-first apps and p2p identity
-      p.text-gray-600.mt-2(v-else) 
-        | Identity: 
-        code.bg-gray-100.px-2.py-1.rounded {{ auth.identity }}
+      .flex.flex-col.gap-4.items-center.justify-center
+        img.w-30(src="/logo.svg")
+        .text-4xl.font-bold HashKeys
 
+      .text-gray-500 Reactive cryptography for web-apps and p2p identity
 
-    // Auth Section
     .rounded-xl(v-if="!auth.authenticated")
       .text-center.flex.flex-col.items-center.gap-4
-        .flex.flex-wrap.gap-2
+        .flex.flex-wrap.gap-4
           button.p-2.rounded-lg.hover-bg-blue-400.bg-blue-500.transition(
             type="button" 
             @click="createPK()"
@@ -231,9 +222,64 @@ onMounted(() => {
 
         .text-red-500.mt-2(v-if="auth.error") {{ auth.error }}
 
-    // Main App
-    div(v-else)
-      // Tab Navigation
+
+    .flex.flex-col.gap-4(v-else)
+      .p-0
+        div
+          .flex.p-2.gap-2
+            h4.text-lg.font-medium.flex-auto Cryptographic Identity 
+            button.py-1.px-2.text-white.rounded-lg.bg-red-800.hover-bg-red-500.active-bg-red-400.ml-auto(
+              @click="logout"
+            ) 🚪 Logout
+          .bg-gray-50.border.rounded-lg.p-4
+            .grid.grid-cols-1.md-grid-cols-2.gap-4
+              div
+                .text-sm.text-gray-600 Identity Hash:
+                .font-mono.text-xs.mt-1.break-all {{ auth.identity }}
+              div
+                .text-sm.text-gray-600 Public Key:
+                .font-mono.text-xs.mt-1.break-all {{ auth.publicKey }}
+              div
+                .text-sm.text-gray-600 Curve:
+                .font-mono.text-xs.mt-1 {{ auth.curve || 'ed25519' }}
+              div
+                .text-sm.text-gray-600 Encryption Key:
+                .font-mono.text-xs.mt-1.break-all {{ auth.encryptionKey || 'Same as public key' }}
+
+      .p-4.flex.flex-col.gap-4
+        .flex.items-center.justify-between.mb-3
+          h4.text-lg.font-medium Master Key Export
+          button.px-4.py-2.bg-yellow-600.text-white.rounded-lg.hover-bg-yellow-700(
+            @click="showMasterKey"
+          ) 🔑 Reveal Master Key
+
+        div(v-if="demoData.masterKey")
+          .bg-yellow-50.border.border-yellow-200.rounded-lg.p-4
+            .font-medium.text-yellow-800 ⚠️ Keep this secret and safe!
+            .mt-2
+              .font-mono.text-xs.bg-white.p-3.rounded.break-all {{ demoData.masterKey }}
+              button.mt-2.px-3.py-1.bg-blue-600.text-white.rounded.hover-bg-blue-700(
+                @click="copy(demoData.masterKey)"
+              ) 📋 Copy
+
+        // Key Derivation
+        div
+          .flex.items-center.justify-between.mb-3
+            h4.text-lg.font-medium Key Derivation
+            button.px-4.py-2.bg-green-600.text-white.rounded-lg.hover-bg-green-700(
+              @click="deriveCustomKey"
+            ) ➕ Derive New Key
+
+          .space-y-2(v-if="demoData.derivedKeys.length")
+            div.bg-gray-50.border.rounded-lg.p-3(
+              v-for="(key, i) in demoData.derivedKeys" :key="i"
+            )
+              .text-sm.text-gray-600 Context: 
+                code {{ key.context }}
+              .font-mono.text-xs.mt-1 {{ key.key }}
+
+
+
       .flex.flex-wrap.gap-2.mb-6.justify-center
         button.px-4.py-2.rounded-lg.transition.font-medium(
           v-for="tab in tabs" :key="tab.id"
@@ -241,9 +287,6 @@ onMounted(() => {
           :class="activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-white hover-bg-blue-50'"
         ) {{ tab.icon }} {{ tab.name }}
 
-        button.px-4.py-2.bg-red-500.text-white.rounded-lg.hover-bg-red-600.ml-auto(
-          @click="logout"
-        ) 🚪 Logout
 
       // Tab Content
       .bg-white.rounded-xl.shadow-lg.p-6
@@ -404,63 +447,7 @@ onMounted(() => {
                   .font-medium.text-emerald-800 ✅ Decrypted P2P Message
                   .mt-2.bg-white.p-3.rounded.font-mono {{ demoData.p2pDecrypted }}
 
-        // Keys Tab
-        div(v-show="activeTab === 'keys'")
-          h3.text-2xl.mb-4 🗝️ Key Management
-          .space-y-6
 
-            // Master Key
-            div
-              .flex.items-center.justify-between.mb-3
-                h4.text-lg.font-medium Master Key Export
-                button.px-4.py-2.bg-yellow-600.text-white.rounded-lg.hover-bg-yellow-700(
-                  @click="showMasterKey"
-                ) 🔑 Reveal Master Key
-
-              div(v-if="demoData.masterKey")
-                .bg-yellow-50.border.border-yellow-200.rounded-lg.p-4
-                  .font-medium.text-yellow-800 ⚠️ Keep this secret and safe!
-                  .mt-2
-                    .font-mono.text-xs.bg-white.p-3.rounded.break-all {{ demoData.masterKey }}
-                    button.mt-2.px-3.py-1.bg-blue-600.text-white.rounded.hover-bg-blue-700(
-                      @click="copy(demoData.masterKey)"
-                    ) 📋 Copy
-
-            // Key Derivation
-            div
-              .flex.items-center.justify-between.mb-3
-                h4.text-lg.font-medium Key Derivation
-                button.px-4.py-2.bg-green-600.text-white.rounded-lg.hover-bg-green-700(
-                  @click="deriveCustomKey"
-                ) ➕ Derive New Key
-
-              .space-y-2(v-if="demoData.derivedKeys.length")
-                div.bg-gray-50.border.rounded-lg.p-3(
-                  v-for="(key, i) in demoData.derivedKeys" :key="i"
-                )
-                  .text-sm.text-gray-600 Context: 
-                    code {{ key.context }}
-                  .font-mono.text-xs.mt-1 {{ key.key }}
-
-            // Identity Info
-            div
-              h4.text-lg.font-medium.mb-3 Cryptographic Identity
-              .bg-gray-50.border.rounded-lg.p-4
-                .grid.grid-cols-1.md-grid-cols-2.gap-4
-                  div
-                    .text-sm.text-gray-600 Identity Hash:
-                    .font-mono.text-xs.mt-1.break-all {{ auth.identity }}
-                  div
-                    .text-sm.text-gray-600 Public Key:
-                    .font-mono.text-xs.mt-1.break-all {{ auth.publicKey }}
-                  div
-                    .text-sm.text-gray-600 Curve:
-                    .font-mono.text-xs.mt-1 {{ auth.curve || 'ed25519' }}
-                  div
-                    .text-sm.text-gray-600 Encryption Key:
-                    .font-mono.text-xs.mt-1.break-all {{ auth.encryptionKey || 'Same as public key' }}
-
-      // Footer
       .text-center.mt-8.text-gray-500.text-sm
         p Powered by 
           a.text-blue-600.hover-underline(href="https://paulmillr.com/noble/" target="_blank") Noble Cryptography
