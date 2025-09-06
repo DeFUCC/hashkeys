@@ -45,7 +45,7 @@ export default defineConfig({
 			}
 		}),
 		viteSingleFile(),
-		// addServiceWorkerScript(),
+		addServiceWorkerScript(),
 	],
 	base: './',
 	build: {
