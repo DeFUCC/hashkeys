@@ -21,7 +21,9 @@
   </div>
   <script type="module">
     import { ref, watch } from 'vue'
-    import auth from '../lib/index.js'
+    import useAuth from '../lib/index.js'
+
+    const auth = useAuth()
 
     document.getElementById('get-key').addEventListener('click', async e => { document.getElementById('master').innerHTML = await auth.getMasterKey() })
 
