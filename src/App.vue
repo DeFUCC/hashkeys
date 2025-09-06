@@ -250,28 +250,26 @@ async function decryptFromAlice() {
               .i-lucide-github
               span DeFUCC/hashkeys
           h4.text-xl.font-medium.mb-1 Install
-          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.select-all npm i hashkeys
-          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.select-all.
+          pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.select-all npm i hashkeys
+          pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.select-all.
             import { useAuth } from 'hashkeys'
-            const auth = useAuth()
-            await auth.init({ prefix: 'hk' }) // optional, defaults to 'hk'
+            const auth = useAuth('hk') // optional custom namespace - 2 lowercase letters
             await auth.login('your passphrase or hkmk1…')
           h4.text-xl.font-medium.mb-1 Basics
-          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.
+          pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.
             // Sign and verify
-            const { signature, publicKey } = await auth.sign('hello world');
-            const { valid } = await auth.verify('hello world', signature, publicKey);
-          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.
+            const { signature, publicKey } = await auth.sign({message: 'hello world'});
+            const { valid } = await auth.verify({message: 'hello world', signature, publicKey});
+          pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.
             // Encrypt for yourself, then decrypt
-            const { ciphertext, nonce } = await auth.encrypt('my secret');
-            const { decrypted } = await auth.decrypt(ciphertext, nonce);
-          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.
+            const { ciphertext, nonce } = await auth.encrypt({data: 'my secret'});
+            const { decrypted } = await auth.decrypt({ciphertext, nonce});
+          pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.
             // P2P: encrypt to a peer (X25519), then peer decrypts
-            const env = await auth.encrypt('hi peer', 'hkek1…'); // recipient's encryption key
+            const {ciphertext, nonce} = await auth.encrypt({data: 'hi peer', recipientPublicKey:'hkek1…'}); // recipient's encryption key
             // send to peer: include your sender key for E2E
-            const envelope = { ...env, from: auth.encryptionKey || auth.publicKey };
             // on the receiver:
-            const msg = await auth.decrypt(envelope.ciphertext, envelope.nonce, envelope.from, envelope.algorithm)
+            const msg = await auth.decrypt({ ciphertext, nonce, senderPublicKey: auth.encryptionKey })
 
 
     .flex.flex-col.gap-4(v-else)
@@ -284,16 +282,16 @@ async function decryptFromAlice() {
         .grid.grid-cols-1.md-grid-cols-2.gap-4
           div
             .text-sm.text-gray-600 Identity Hash:
-            .font-mono.text-xs.mt-1.break-all {{ auth.identity }}
+            .font-mono.text-sm.mt-1.break-all {{ auth.identity }}
           div
             .text-sm.text-gray-600 Public Key:
-            .font-mono.text-xs.mt-1.break-all {{ auth.publicKey }}
+            .font-mono.text-sm.mt-1.break-all {{ auth.publicKey }}
           div
             .text-sm.text-gray-600 Curve:
-            .font-mono.text-xs.mt-1 {{ auth.curve || 'ed25519' }}
+            .font-mono.text-sm.mt-1 {{ auth.curve || 'ed25519' }}
           div
             .text-sm.text-gray-600 Encryption Key:
-            .font-mono.text-xs.mt-1.break-all {{ auth.encryptionKey || 'Same as public key' }}
+            .font-mono.text-sm.mt-1.break-all {{ auth.encryptionKey || 'Same as public key' }}
 
       .flex.flex-col.gap-4
         .flex.items-center.justify-between
@@ -306,7 +304,7 @@ async function decryptFromAlice() {
           .bg-yellow-50.border.border-yellow-200.p-4
             .font-medium.text-yellow-800 ⚠️ Keep this secret and safe!
             .mt-2
-              .font-mono.text-xs.bg-white.p-3.rounded.break-all.select-all {{ demoData.masterKey }}
+              .font-mono.text-sm.bg-white.p-3.rounded.break-all.select-all {{ demoData.masterKey }}
               button.mt-2.bg-blue-600.text-white.rounded.active-bg-blue-500.hover-bg-blue-700(
                 @click="copy(demoData.masterKey)"
               ) 📋 Copy
@@ -325,7 +323,7 @@ async function decryptFromAlice() {
             )
             .text-sm.text-gray-600 Context: 
               code {{ key.context }}
-            .font-mono.text-xs.py-4.overflow-x-scroll {{ key.key }}
+            .font-mono.text-sm.py-4.overflow-x-scroll {{ key.key }}
 
 
 
@@ -362,10 +360,10 @@ async function decryptFromAlice() {
                 .mt-2.space-y-2
                   div
                     .text-sm.text-gray-600 Signature:
-                    .font-mono.text-xs.bg-gray-100.p-2.rounded.break-all {{ demoData.signResult.signature }}
+                    .font-mono.text-sm.bg-gray-100.p-2.rounded.break-all {{ demoData.signResult.signature }}
                   div  
                     .text-sm.text-gray-600 Public Key:
-                    .font-mono.text-xs.bg-gray-100.p-2.rounded.break-all {{ demoData.signResult.publicKey }}
+                    .font-mono.text-sm.bg-gray-100.p-2.rounded.break-all {{ demoData.signResult.publicKey }}
 
 
           h3.text-2xl.mb-4 ✅ Signature Verification
@@ -376,14 +374,14 @@ async function decryptFromAlice() {
 
             div
               label.block.font-medium.mb-2 Signature:
-              input.w-full.p-3.border.font-mono.text-xs(
+              input.w-full.p-3.border.font-mono.text-sm(
                 v-model="demoData.verifySignature"
                 placeholder="Paste signature bech32 hksg..."
               )
 
             div
               label.block.font-medium.mb-2 Public Key:
-              input.w-full.p-3.border.font-mono.text-xs(
+              input.w-full.p-3.border.font-mono.text-sm(
                 v-model="demoData.verifyPublicKey"
                 placeholder="Paste public key bech32 hkpk... (or leave empty to use yours)"
               )
@@ -428,10 +426,10 @@ async function decryptFromAlice() {
                 .mt-2.space-y-2
                   div
                     .text-sm.text-gray-600 Cipher:
-                    .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.encryptResult.ciphertext }}
+                    .font-mono.text-sm.bg-white.p-2.rounded.break-all {{ demoData.encryptResult.ciphertext }}
                   div
                     .text-sm.text-gray-600 Nonce:
-                    .font-mono.text-xs.bg-white.p-2.rounded {{ demoData.encryptResult.nonce }}
+                    .font-mono.text-sm.bg-white.p-2.rounded {{ demoData.encryptResult.nonce }}
 
             div(v-if="demoData.decryptResult")
               .bg-green-50.border.border-green-200.p-4
@@ -449,13 +447,13 @@ async function decryptFromAlice() {
             .mt-3.grid.grid-cols-1.gap-2(v-if="Alice.authenticated")
               div
                 .text-sm.text-gray-600 Alice Identity:
-                .font-mono.text-xs.mt-1.break-all {{ Alice.identity }}
+                .font-mono.text-sm.mt-1.break-all {{ Alice.identity }}
               div
                 .text-sm.text-gray-600 Alice Public Key:
-                .font-mono.text-xs.mt-1.break-all {{ Alice.publicKey }}
+                .font-mono.text-sm.mt-1.break-all {{ Alice.publicKey }}
               div
                 .text-sm.text-gray-600 Alice Encryption Key:
-                .font-mono.text-xs.mt-1.break-all {{ Alice.encryptionKey }}
+                .font-mono.text-sm.mt-1.break-all {{ Alice.encryptionKey }}
 
           h4.text-lg.font-medium You ➜ Alice
 
@@ -465,7 +463,7 @@ async function decryptFromAlice() {
             button.bg-emerald-600.text-white.hover-bg-emerald-700(:disabled="!demoData.toAliceEnvelope" @click="aliceDecryptLast") 🧩 Alice decrypts
           div(v-if="demoData.toAliceEnvelope")
             .text-sm.text-gray-600 Envelope to Alice:
-            .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.toAliceEnvelope.ciphertext }}
+            .font-mono.text-sm.bg-white.p-2.rounded.break-all {{ demoData.toAliceEnvelope.ciphertext }}
           div(v-if="demoData.toAliceDecryptedByAlice")
             .bg-emerald-50.border.border-emerald-200.p-3.rounded ✅ Alice read: {{ demoData.toAliceDecryptedByAlice }}
 
@@ -477,7 +475,7 @@ async function decryptFromAlice() {
               button.bg-orange-600.text-white.hover-bg-orange-700(:disabled="!demoData.fromAliceEnvelope" @click="decryptFromAlice") 📨 You decrypt
             div(v-if="demoData.fromAliceEnvelope")
               .text-sm.text-gray-600 Envelope from Alice:
-              .font-mono.text-xs.bg-white.p-2.rounded.break-all {{ demoData.fromAliceEnvelope.ciphertext }}
+              .font-mono.text-sm.bg-white.p-2.rounded.break-all {{ demoData.fromAliceEnvelope.ciphertext }}
             div(v-if="demoData.fromAliceDecryptedByMe")
               .bg-blue-50.border.border-blue-200.p-3.rounded ✅ You read: {{ demoData.fromAliceDecryptedByMe }}
 
