@@ -2,6 +2,7 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useAuth } from './useAuth.js'
 import { useStorage } from '@vueuse/core'
+import { version } from '../package.json'
 
 const passphrase = ref(' Your long passphrase to derive a key from it or your previously exported master key')
 const activeTab = useStorage('activeTab', 'sign')
@@ -482,7 +483,7 @@ async function decryptFromAlice() {
 
 
   .text-center.mt-4.text-gray-500.text-sm
-    p Powered by 
+    p v.{{ version }} Powered by 
       a.text-blue-600.hover-underline(href="https://paulmillr.com/noble/" target="_blank") Noble Cryptography
       |  • Local-first • Zero-trust • Open Source
 
