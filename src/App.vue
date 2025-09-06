@@ -1,13 +1,14 @@
 <script setup>
 import { ref, computed, reactive, onMounted } from 'vue'
-import auth from './useAuth.js'
-import AuthWorker from './auth-worker.js?worker&inline'
+import { useAuth } from './useAuth.js'
 import { useStorage } from '@vueuse/core'
 
 const passphrase = ref(' Your long passphrase to derive a key from it or your previously exported master key')
 const activeTab = useStorage('activeTab', 'sign')
 
-const appPrefix = ref('hk')
+const auth = useAuth('hd')
+
+const Alice = useAuth('hd')
 
 const demoData = reactive({
   // Signing
@@ -51,22 +52,19 @@ const tabs = [
   { id: 'p2p', name: 'P2P', icon: '🤝' }
 ]
 
-const login = async () => {
-  await auth.init({ appPrefix: appPrefix.value })
-  await auth.login(passphrase.value)
+const login = () => {
+  auth.login(passphrase.value)
   if (auth.authenticated) {
     passphrase.value = ''
     activeTab.value = 'sign'
   }
 }
 
-const logout = async () => {
-  await auth.logout()
-}
+
 
 const signDemo = async () => {
   try {
-    demoData.signResult = await auth.sign(demoData.signText)
+    demoData.signResult = await auth.sign({ message: demoData.signText })
     // Auto-populate verify fields
     demoData.verifyText = demoData.signText
     demoData.verifySignature = demoData.signResult.signature
@@ -88,11 +86,7 @@ const verifyDemo = async () => {
       return
     }
 
-    demoData.verifyResult = await auth.verify(
-      demoData.verifyText,
-      sig,
-      pkIn
-    )
+    demoData.verifyResult = await auth.verify({ message: demoData.verifyText, signature: sig, publicKey: pkIn })
   } catch (error) {
     console.error('Verify failed:', error)
   }
@@ -100,7 +94,7 @@ const verifyDemo = async () => {
 
 const encryptDemo = async () => {
   try {
-    demoData.encryptResult = await auth.encrypt(demoData.encryptText)
+    demoData.encryptResult = await auth.encrypt({ data: demoData.encryptText })
   } catch (error) {
     console.error('Encrypt failed:', error)
   }
@@ -109,26 +103,12 @@ const encryptDemo = async () => {
 const decryptDemo = async () => {
   if (!demoData.encryptResult) return
   try {
-    demoData.decryptResult = await auth.decrypt(
-      demoData.encryptResult.ciphertext,
-      demoData.encryptResult.nonce
-    )
+    demoData.decryptResult = await auth.decrypt({
+      ciphertext: demoData.encryptResult.ciphertext,
+      nonce: demoData.encryptResult.nonce
+    })
   } catch (error) {
     console.error('Decrypt failed:', error)
-  }
-}
-
-
-
-const decryptP2P = async () => {
-  const env = demoData.p2pResult
-  if (!env) return
-  try {
-    // Decrypt using sender's public key and provided algorithm (xchacha20poly1305-x25519)
-    const res = await auth.decrypt(env.ciphertext, env.nonce, env.from, env.algorithm)
-    demoData.p2pDecrypted = res.decrypted
-  } catch (error) {
-    console.error('P2P decrypt failed:', error)
   }
 }
 
@@ -143,7 +123,7 @@ const showMasterKey = async () => {
 async function deriveCustomKey(context) {
   if (!context) return
   try {
-    const result = await auth.deriveKey(context, 32)
+    const result = await auth.deriveKey({ context, length: 32 })
     demoData.derivedKeys.push({
       context,
       key: result.derivedKey
@@ -167,94 +147,12 @@ onMounted(() => {
 
 const customApp = ref('')
 
-// --- Local Alice peer (second account) ---
-const alice = reactive({
-  worker: null,
-  loading: false,
-  error: null,
-  authenticated: false,
-  publicKey: null,
-  encryptionKey: null,
-  identity: null,
-})
 
-let aliceReqId = 0
-const alicePending = new Map()
-
-function aliceSend(type, data = null) {
-  const id = ++aliceReqId
-  return new Promise((resolve, reject) => {
-    alicePending.set(id, { resolve, reject })
-    alice.worker.postMessage({ id, type, data })
-  })
-}
-
-function ensureAliceWorker() {
-  if (alice.worker) return
-  alice.worker = new AuthWorker()
-  alice.worker.onmessage = ({ data: { id, success, error, type, result } }) => {
-    if (success && type === 'auth' && result?.authenticated) {
-      Object.assign(alice, {
-        loading: false,
-        authenticated: true,
-        publicKey: result.publicKey,
-        identity: result.identity,
-        encryptionKey: result.encryptionKey || result.publicKey,
-        error: null,
-      })
-    } else if (success && (type === 'logout' || (type === 'auth' && !result?.authenticated))) {
-      Object.assign(alice, {
-        loading: false,
-        authenticated: false,
-        publicKey: null,
-        identity: null,
-        encryptionKey: null,
-        error: null,
-      })
-    }
-
-    if (alicePending.has(id)) {
-      const { resolve, reject } = alicePending.get(id)
-      alicePending.delete(id)
-      if (success) resolve(result)
-      else { alice.error = error || 'Alice worker error'; reject(new Error(alice.error)) }
-    }
-  }
-  alice.worker.onerror = (err) => {
-    console.error('Alice worker error:', err)
-    alice.error = 'Alice crypto worker failed'
-    alice.loading = false
-  }
-}
-
-async function spawnAlice() {
-  try {
-    ensureAliceWorker()
-    alice.loading = true
-    alice.error = null
-    // Mirror current app prefix so bech32 tags match
-    await aliceSend('init', { appPrefix: appPrefix.value })
-    // Use a random secret for Alice
-    const rand = crypto.getRandomValues(new Uint8Array(16))
-    const secret = Array.from(rand).map(b => b.toString(16).padStart(2, '0')).join('')
-    await aliceSend('auth', `alice-${secret}`)
-  } catch (e) {
-    console.error(e)
-    alice.error = e.message || String(e)
-    alice.loading = false
-  }
-}
-
-function useAliceKeyAsPeer() {
-  if (alice.encryptionKey) demoData.peerPublicKey = alice.encryptionKey
-}
-
-// Encrypt to Alice with our account, then have Alice decrypt locally
 async function sendToAlice() {
-  if (!auth.authenticated || !alice.encryptionKey) return
+  if (!auth.authenticated || !Alice.encryptionKey) return
   try {
-    const env = await auth.encrypt(demoData.toAliceMessage, alice.encryptionKey)
-    demoData.toAliceEnvelope = { ...env, from: auth.encryptionKey || auth.publicKey }
+    const env = await auth.encrypt({ data: demoData.toAliceMessage, recipientPublicKey: Alice.encryptionKey })
+    demoData.toAliceEnvelope = { ...env, senderPublicKey: auth.encryptionKey }
     demoData.toAliceDecryptedByAlice = null
   } catch (e) {
     console.error('sendToAlice failed:', e)
@@ -265,19 +163,18 @@ async function aliceDecryptLast() {
   const env = demoData.toAliceEnvelope
   if (!env) return
   try {
-    const res = await aliceSend('decrypt', { ciphertext: env.ciphertext, nonce: env.nonce, senderPublicKey: env.from, algorithm: env.algorithm })
+    const res = await Alice.decrypt(env)
     demoData.toAliceDecryptedByAlice = res.decrypted
   } catch (e) {
     console.error('aliceDecryptLast failed:', e)
   }
 }
 
-// Alice replies to us; then we decrypt with our account
 async function aliceReply() {
-  if (!alice.authenticated || !auth.publicKey) return
+  if (!Alice.authenticated || !auth.publicKey) return
   try {
-    const env = await aliceSend('encrypt', { data: demoData.fromAliceMessage, recipientPublicKey: auth.encryptionKey || auth.publicKey, algorithm: 'xchacha20poly1305' })
-    demoData.fromAliceEnvelope = { ...env, from: alice.encryptionKey || alice.publicKey }
+    const env = await Alice.encrypt({ data: demoData.fromAliceMessage, recipientPublicKey: auth.encryptionKey })
+    demoData.fromAliceEnvelope = { ...env, senderPublicKey: Alice.encryptionKey }
     demoData.fromAliceDecryptedByMe = null
   } catch (e) {
     console.error('aliceReply failed:', e)
@@ -288,7 +185,7 @@ async function decryptFromAlice() {
   const env = demoData.fromAliceEnvelope
   if (!env) return
   try {
-    const res = await auth.decrypt(env.ciphertext, env.nonce, env.from, env.algorithm)
+    const res = await auth.decrypt(env)
     demoData.fromAliceDecryptedByMe = res.decrypted
   } catch (e) {
     console.error('decryptFromAlice failed:', e)
@@ -353,7 +250,11 @@ async function decryptFromAlice() {
               span DeFUCC/hashkeys
           h4.text-xl.font-medium.mb-1 Install
           pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.select-all npm i hashkeys
-          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.select-all import auth from 'hashkeys'
+          pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.select-all.
+            import { useAuth } from 'hashkeys'
+            const auth = useAuth()
+            await auth.init({ prefix: 'hk' }) // optional, defaults to 'hk'
+            await auth.login('your passphrase or hkmk1…')
           h4.text-xl.font-medium.mb-1 Basics
           pre.bg-gray-600.text-white.p-3.rounded.text-xs.overflow-x-auto.
             // Sign and verify
@@ -376,7 +277,7 @@ async function decryptFromAlice() {
       .flex.gap-2
         h4.text-lg.font-medium.flex-auto Cryptographic Identity 
         button.text-white.bg-red-800.hover-bg-red-500.active-bg-red-400.ml-auto(
-          @click="logout"
+          @click="auth.logout()"
         ) Exit
       .bg-gray-50.border.p-4
         .grid.grid-cols-1.md-grid-cols-2.gap-4
@@ -476,14 +377,14 @@ async function decryptFromAlice() {
               label.block.font-medium.mb-2 Signature:
               input.w-full.p-3.border.font-mono.text-xs(
                 v-model="demoData.verifySignature"
-                placeholder="Paste signature bech32 igsg..."
+                placeholder="Paste signature bech32 hksg..."
               )
 
             div
               label.block.font-medium.mb-2 Public Key:
               input.w-full.p-3.border.font-mono.text-xs(
                 v-model="demoData.verifyPublicKey"
-                placeholder="Paste public key bech32 igpk... (or leave empty to use yours)"
+                placeholder="Paste public key bech32 hkpk... (or leave empty to use yours)"
               )
 
             button.bg-blue-600.text-white.hover-bg-blue-700(
@@ -542,24 +443,24 @@ async function decryptFromAlice() {
           h3.text-xl.mt-8.mb-2 🧪 Local Alice (second account)
           .bg-gray-50.border.p-4.rounded
             .flex.flex-wrap.items-center.gap-2
-              button.bg-slate-800.text-white.hover-bg-slate-700(:disabled="alice.loading || alice.authenticated" @click="spawnAlice" v-if="!alice.authenticated") ▶️ Spawn Alice
-              span.text-sm.text-gray-600(v-if="alice.loading") Starting Alice…
-            .mt-3.grid.grid-cols-1.gap-2(v-if="alice.authenticated")
+              button.bg-slate-800.text-white.hover-bg-slate-700(:disabled="Alice.loading || Alice.authenticated" @click="Alice.login(`alice-secret`)" v-if="!Alice.authenticated") ▶️ Spawn Alice
+              span.text-sm.text-gray-600(v-if="Alice.loading") Starting Alice…
+            .mt-3.grid.grid-cols-1.gap-2(v-if="Alice.authenticated")
               div
                 .text-sm.text-gray-600 Alice Identity:
-                .font-mono.text-xs.mt-1.break-all {{ alice.identity }}
+                .font-mono.text-xs.mt-1.break-all {{ Alice.identity }}
               div
                 .text-sm.text-gray-600 Alice Public Key:
-                .font-mono.text-xs.mt-1.break-all {{ alice.publicKey }}
+                .font-mono.text-xs.mt-1.break-all {{ Alice.publicKey }}
               div
                 .text-sm.text-gray-600 Alice Encryption Key:
-                .font-mono.text-xs.mt-1.break-all {{ alice.encryptionKey }}
+                .font-mono.text-xs.mt-1.break-all {{ Alice.encryptionKey }}
 
           h4.text-lg.font-medium You ➜ Alice
 
           textarea.w-full.p-3.border(v-model="demoData.toAliceMessage" rows="2" placeholder="Type a message for Alice")
           .flex.gap-2
-            button.bg-pink-600.text-white.hover-bg-pink-700(:disabled="!alice.authenticated" @click="sendToAlice") 📤 Encrypt to Alice
+            button.bg-pink-600.text-white.hover-bg-pink-700(:disabled="!Alice.authenticated" @click="sendToAlice") 📤 Encrypt to Alice
             button.bg-emerald-600.text-white.hover-bg-emerald-700(:disabled="!demoData.toAliceEnvelope" @click="aliceDecryptLast") 🧩 Alice decrypts
           div(v-if="demoData.toAliceEnvelope")
             .text-sm.text-gray-600 Envelope to Alice:
@@ -571,7 +472,7 @@ async function decryptFromAlice() {
           .space-y-2
             textarea.w-full.p-3.border(v-model="demoData.fromAliceMessage" rows="2" placeholder="Alice's message to you")
             .flex.gap-2
-              button.bg-indigo-600.text-white.hover-bg-indigo-700(:disabled="!alice.authenticated" @click="aliceReply") 💬 Alice sends
+              button.bg-indigo-600.text-white.hover-bg-indigo-700(:disabled="!Alice.authenticated" @click="aliceReply") 💬 Alice sends
               button.bg-orange-600.text-white.hover-bg-orange-700(:disabled="!demoData.fromAliceEnvelope" @click="decryptFromAlice") 📨 You decrypt
             div(v-if="demoData.fromAliceEnvelope")
               .text-sm.text-gray-600 Envelope from Alice:

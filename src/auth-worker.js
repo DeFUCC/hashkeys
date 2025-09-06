@@ -142,7 +142,7 @@ const handlers = {
 
     const normalized = String(data).normalize('NFC').trim();
 
-    // Import master key: prefer bech32 igmk..., accept legacy ig... or derive from password
+    // Import master key: prefer bech32 hkmk..., accept legacy hk... or derive from password
     const b = tryDecB32(normalized);
     if (b && (b.tag === TAG.MK || b.tag === '' /* legacy */)) {
       cryptoState.masterKey = b.bytes;
@@ -273,7 +273,7 @@ const handlers = {
     if (CURVE_TYPE === 'ed25519' && recipientPublicKey) {
       const rec = tryDecB32(recipientPublicKey);
       if (!rec || (rec.tag !== TAG.EK && rec.tag !== TAG.PK)) {
-        self.postMessage({ id, success: false, error: 'recipientPublicKey must be bech32 igek... or igpk...' });
+        self.postMessage({ id, success: false, error: 'recipientPublicKey must be bech32 hkek... or hkpk...' });
         return;
       }
 
@@ -338,7 +338,7 @@ const handlers = {
     if (algorithm === 'xchacha20poly1305-x25519' && senderPublicKey) {
       const sen = tryDecB32(senderPublicKey);
       if (!sen || (sen.tag !== TAG.EK && sen.tag !== TAG.PK)) {
-        self.postMessage({ id, success: false, error: 'senderPublicKey must be bech32 igek... or igpk...' });
+        self.postMessage({ id, success: false, error: 'senderPublicKey must be bech32 hkk... or hkpk...' });
         return;
       }
       const sharedSecret = x25519.getSharedSecret(cryptoState.privateKey, sen.bytes);
