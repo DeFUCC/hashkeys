@@ -245,7 +245,7 @@ async function decryptFromAlice() {
           .flex.flex-wrap.gap-3.mb-4
             a.bg-black.text-white.p-2.rounded.hover-opacity-85.flex.items-center.gap-2(target="_blank" href="https://www.npmjs.com/package/hashkeys")
               .i-lucide-box
-              span hashkeys
+              span NPM/hashkeys
             a.bg-gray-800.text-white.px-3.py-1.rounded.hover-opacity-85.flex.items-center.gap-2(target="_blank" href="https://github.com/DeFUCC/hashkeys")
               .i-lucide-github
               span DeFUCC/hashkeys
