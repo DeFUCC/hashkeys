@@ -18,7 +18,6 @@
 		"dev": "vite --host",
 		"build": "vite build --emptyOutDir",
 		"lib": "vite build --config vite.config.lib.js --emptyOutDir",
-		"lib.worker": "vite build --config vite.config.lib.worker.js",
 		"preview": "vite preview --host"
 	},
 	"dependencies": {
