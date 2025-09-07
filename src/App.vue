@@ -249,6 +249,9 @@ async function decryptFromAlice() {
             a.bg-gray-800.text-white.px-3.py-1.rounded.hover-opacity-85.flex.items-center.gap-2(target="_blank" href="https://github.com/DeFUCC/hashkeys")
               .i-lucide-github
               span DeFUCC/hashkeys
+            a.bg-gray-800.text-white.px-3.py-1.rounded.hover-opacity-85.flex.items-center.gap-2(target="_blank" href="https://www.youtube.com/watch?v=88_xE85LZO0")
+              .i-lucide-youtube
+              span Watch video
           h4.text-xl.font-medium.mb-1 Install
           pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.select-all npm i hashkeys
           pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.select-all.
