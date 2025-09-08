@@ -24,7 +24,8 @@
 		"@noble/ciphers": "^2.0.0",
 		"@noble/curves": "^2.0.0",
 		"@noble/hashes": "^2.0.0",
-		"@scure/base": "^2.0.0"
+		"@scure/base": "^2.0.0",
+		"shamir-secret-sharing": "^0.0.4"
 	},
 	"peerDependencies": {
 		"vue": "^3.5.0"

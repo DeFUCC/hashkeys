@@ -193,6 +193,22 @@ async function decryptFromAlice() {
   }
 }
 
+const shares = ref(4)
+const threshold = ref(3)
+const splitKey = ref([])
+const reKey = ref('')
+
+async function splitSecret() {
+
+  splitKey.value = await auth.getSplitKey({ shares: shares.value, threshold: threshold.value })
+
+}
+
+async function combineKey() {
+  reKey.value = await auth.combineKey({ shares: [...splitKey.value] })
+}
+
+
 </script>
 
 <template lang="pug">
@@ -299,18 +315,34 @@ async function decryptFromAlice() {
       .flex.flex-col.gap-4
         .flex.items-center.justify-between
           h4.text-lg.font-medium Master Key Export
-          button.bg-yellow-600.text-white.hover-bg-yellow-700(
+          button.bg-yellow-600.text-white.hover-bg-yellow-700.gap-2.flex(
             @click="demoData.masterKey ? demoData.masterKey = null : showMasterKey()"
-          ) {{ demoData.masterKey ? "Hide" : "Reveal" }} Master Key
+          ) 
+            span {{ demoData.masterKey ? "^" : "v" }}
+            span Key Backup
 
-        div(v-if="demoData.masterKey")
+        .flex.flex-col.gap-2(v-if="demoData.masterKey")
+
           .bg-yellow-50.border.border-yellow-200.p-4
             .font-medium.text-yellow-800 ⚠️ Keep this secret and safe!
             .mt-2
-              .font-mono.text-sm.bg-white.p-3.rounded.break-all.select-all {{ demoData.masterKey }}
+              .font-mono.text-sm.bg-white.p-4.rounded.break-all.select-all.overflow-hidden.blur-10.hover-blur-0.transition-2000 {{ demoData.masterKey }}
               button.mt-2.bg-blue-600.text-white.rounded.active-bg-blue-500.hover-bg-blue-700(
                 @click="copy(demoData.masterKey)"
               ) 📋 Copy
+
+          .bg-green-50.border.border-green-200.p-4.gap-2(v-show="activeTab === 'sign'")
+            label 
+              .text-lg Shares: {{ shares }}
+              input(type="range" v-model="shares" min="2" max="12")
+            label Threshold
+              input(type="range" v-model="threshold" min="2" :max="shares")
+            button(@click="splitSecret") SPLIT
+            .flex-col.flex.gap-8
+              .flex.p-1.break-all(v-for="share in splitKey" :key="share") {{ share }}
+
+            button(@click="combineKey") Combine
+            .text-sm {{ reKey }}
 
 
         .flex.items-center.justify-between.gap-2
@@ -340,7 +372,6 @@ async function decryptFromAlice() {
 
       // Tab Content
       .bg-white.shadow-lg.p-6
-
 
         .flex.flex-col.gap-2(v-show="activeTab === 'sign'")
           h3.text-2xl.mb-4 ✍️ Digital Signatures
@@ -481,6 +512,7 @@ async function decryptFromAlice() {
               .font-mono.text-sm.bg-white.p-2.rounded.break-all {{ demoData.fromAliceEnvelope.ciphertext }}
             div(v-if="demoData.fromAliceDecryptedByMe")
               .bg-blue-50.border.border-blue-200.p-3.rounded ✅ You read: {{ demoData.fromAliceDecryptedByMe }}
+
 
 
   .text-center.mt-4.text-gray-500.text-sm

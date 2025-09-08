@@ -2,6 +2,7 @@ import { scrypt } from '@noble/hashes/scrypt.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { bech32 } from '@scure/base';
+import { split, combine } from 'shamir-secret-sharing';
 
 // Symmetric encryption
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
@@ -26,7 +27,8 @@ const TAG = Object.freeze({
   SG: 'sg',   // signature
   NC: 'nc',   // nonce
   CT: 'ct',   // ciphertext
-  DK: 'dk'    // derived key material
+  DK: 'dk',
+  SH: 'sh'   // derived key material
 });
 
 const encoder = new TextEncoder();
@@ -212,6 +214,40 @@ const handlers = {
       success: true,
       result: encB32(TAG.MK, cryptoState.masterKey)
     });
+  },
+
+  async 'get-split-key'(id, { shares, threshold }) {
+    if (!cryptoState.masterKey) {
+      self.postMessage({ id, success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    const shareList = await split(cryptoState.masterKey, shares, threshold);
+
+    self.postMessage({
+      id,
+      type: 'split-key',
+      success: true,
+      result: shareList.map(share => encB32(TAG.SH, share))
+    });
+  },
+
+  async 'combine-key'(id, { shares }) {
+    if (!cryptoState.masterKey) {
+      self.postMessage({ id, success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    const list = shares.map(share => tryDecB32(share).bytes)
+    const reconstructed = await combine(list);
+
+    self.postMessage({
+      id,
+      type: 'split-key',
+      success: true,
+      result: encB32(TAG.MK, reconstructed)
+    });
+
   },
 
   async sign(id, { message }) {

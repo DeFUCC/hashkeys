@@ -100,6 +100,14 @@ function useAuth(options = {}) {
       if (!auth.authenticated) throw new Error('Not authenticated');
       return send('get-master-key')
     },
+    getSplitKey(data) {
+      if (!auth.authenticated) throw new Error('Not authenticated');
+      return send('get-split-key', data)
+    },
+    combineKey(data) {
+      if (!auth.authenticated) throw new Error('Not authenticated');
+      return send('combine-key', data)
+    },
 
     async recall() {
       // Try current prefix, then legacy 'hk'
