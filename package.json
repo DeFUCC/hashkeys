@@ -1,9 +1,9 @@
 {
 	"name": "hashkeys",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Reactive Noble cryptography for p2p identity",
 	"type": "module",
-	"homepage": "https://github.com/DeFUCC/hashkeys",
+	"homepage": "https://hashkeys.js.org",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/DeFUCC/hashkeys.git"
