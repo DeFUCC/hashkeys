@@ -1,10 +1,10 @@
 <script setup>
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useAuth } from './useAuth.js'
 import { useStorage } from '@vueuse/core'
 import { version } from '../package.json'
 
-const passphrase = ref(' Your long passphrase to derive a key from it or your previously exported master key')
+const passphrase = ref('')
 const activeTab = useStorage('activeTab', 'sign')
 
 const auth = useAuth('hd')
@@ -55,13 +55,8 @@ const tabs = [
 
 const login = () => {
   auth.login(passphrase.value)
-  if (auth.authenticated) {
-    passphrase.value = ''
-    activeTab.value = 'sign'
-  }
+  passphrase.value = ''
 }
-
-
 
 const signDemo = async () => {
   try {
@@ -199,10 +194,12 @@ const splitKey = ref([])
 const reKey = ref('')
 
 async function splitSecret() {
-
-  splitKey.value = await auth.getSplitKey({ shares: shares.value, threshold: threshold.value })
-
+  splitKey.value = await auth.getSplitKey({ shares: Number(shares.value), threshold: Number(threshold.value) })
 }
+
+watch([shares, threshold], async () => {
+  splitKey.value = await auth.getSplitKey({ shares: Number(shares.value), threshold: Number(threshold.value) })
+})
 
 async function combineKey() {
   reKey.value = await auth.combineKey({ shares: [...splitKey.value] })
@@ -243,7 +240,7 @@ async function combineKey() {
           v-model="passphrase" 
             rows="5"
             type="password" 
-            placeholder="Enter passphrase"
+            placeholder="Your passphrase to derive a key from it or your previously exported master key - either as hdmk1... or a necessary number of hdsh1... split shares"
             @keyup.enter="login"
             :disabled="auth.loading"
           )
@@ -273,7 +270,7 @@ async function combineKey() {
           pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.select-all.
             import { useAuth } from 'hashkeys'
             const auth = useAuth('hk') // optional custom namespace - 2 lowercase letters
-            await auth.login('your passphrase or hkmk1…')
+            await auth.login('your passphrase or hkmk1… or a list of hdsh1… shares')
           h4.text-xl.font-medium.mb-1 Basics
           pre.bg-gray-200.p-3.rounded.text-sm.overflow-x-auto.
             // Sign and verify
@@ -331,18 +328,18 @@ async function combineKey() {
                 @click="copy(demoData.masterKey)"
               ) 📋 Copy
 
-          .bg-green-50.border.border-green-200.p-4.gap-2(v-show="activeTab === 'sign'")
-            label 
+          .bg-green-50.border.border-green-200.p-4.gap-2.flex.flex-wrap(v-show="activeTab === 'sign'")
+            label.flex.flex-col(style="flex: 1 1 50%")
               .text-lg Shares: {{ shares }}
               input(type="range" v-model="shares" min="2" max="12")
-            label Threshold
+            label.flex.flex-col(style="flex: 1 1 50%") 
+              .text-lg Threshold: {{ threshold }}
               input(type="range" v-model="threshold" min="2" :max="shares")
-            button(@click="splitSecret") SPLIT
-            .flex-col.flex.gap-8
-              .flex.p-1.break-all(v-for="share in splitKey" :key="share") {{ share }}
-
-            button(@click="combineKey") Combine
-            .text-sm {{ reKey }}
+            button.bg-green-500.hover-bg-green-400(@click="splitSecret") SPLIT
+            .flex-wrap.flex.gap-2
+              .break-all.bg-stone-1(v-for="share in splitKey" :key="share" style="flex: 1 1 150px") 
+                .text-sm.p-4.select-all.blur-5.hover-blur-0.transition-180 {{ share }}
+            .text-sm.text-green-900(v-if="splitKey.length") Now you can use {{ threshold }}+ of these {{ shares }} shares to authenticate with this same identity
 
 
         .flex.items-center.justify-between.gap-2

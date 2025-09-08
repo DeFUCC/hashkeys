@@ -143,23 +143,45 @@ const handlers = {
     }
 
     const normalized = String(data).normalize('NFC').trim();
+    let usedShamir = false;
+    let sharesUsed = 0;
 
-    // Import master key: prefer bech32 hkmk..., accept legacy hk... or derive from password
-    const b = tryDecB32(normalized);
-    if (b && (b.tag === TAG.MK || b.tag === '' /* legacy */)) {
-      cryptoState.masterKey = b.bytes;
-    } else {
-      // legacy: appPrefix without tag and exact length (compat)
+    // Try Shamir shares if any are found
+    const shares = normalized.split(/\r?\n/)
+      .map(line => ({
+        data: line.trim(),
+        decoded: tryDecB32(line.trim())
+      }))
+      .filter(({ decoded }) => decoded?.tag === TAG.SH);
+
+    if (shares.length > 0) {
       try {
-        const { prefix, words } = bech32.decode(normalized, false);
-        if (prefix === appPrefix) cryptoState.masterKey = bech32.fromWords(words);
-      } catch (_) { }
-      if (!cryptoState.masterKey) {
-        cryptoState.masterKey = scrypt(
-          encoder.encode(normalized.toLowerCase()),
-          encoder.encode(versionSalt),
-          { N: 1 << 17, r: 8, p: 1, dkLen: 32 }
-        );
+        cryptoState.masterKey = new Uint8Array(await combine(shares.map(({ decoded }) => decoded.bytes)));
+        usedShamir = true;
+        sharesUsed = shares.length;
+      } catch (error) {
+        console.warn('Failed to combine Shamir shares:', error);
+      }
+    }
+
+    // Fall back to other auth methods if needed
+    if (!cryptoState.masterKey) {
+      const b = tryDecB32(normalized);
+      if (b?.tag === TAG.MK || b?.tag === '') {
+        cryptoState.masterKey = b.bytes;
+      } else {
+        try {
+          const { prefix, words } = bech32.decode(normalized, false);
+          if (prefix === appPrefix) cryptoState.masterKey = bech32.fromWords(words);
+        } catch (_) { }
+
+        if (!cryptoState.masterKey) {
+          cryptoState.masterKey = scrypt(
+            encoder.encode(normalized.toLowerCase()),
+            encoder.encode(versionSalt),
+            { N: 1 << 17, r: 8, p: 1, dkLen: 32 }
+          );
+        }
       }
     }
 
@@ -174,7 +196,9 @@ const handlers = {
         publicKey: encB32(TAG.PK, cryptoState.publicKey),
         identity: encB32(TAG.ID, cryptoState.identity),
         encryptionKey: CURVE_TYPE === 'ed25519' ? encB32(TAG.EK, cryptoState.encryptionKey) : null,
-        curve: CURVE_TYPE
+        curve: CURVE_TYPE,
+        usedShamir,
+        ...(usedShamir && { sharesUsed })
       }
     });
   },

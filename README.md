@@ -2,7 +2,7 @@
 
 Reactive Noble cryptography for local‑first apps and p2p identity. `hashkeys` exposes a Vue 3 composable `useAuth()` that returns a reactive object running all cryptography in a Web Worker and provides a simple API for:
 
-- Authentication from a passphrase or bech32 master key
+- Authentication from a passphrase, a bech32 master key or Shamir shares
 - Identity and public keys
 - Sign/verify
 - Symmetric and end‑to‑end encryption
@@ -196,6 +196,29 @@ Returns: `hkmk…` string.
 
 Requires authentication.
 
+#### getSplitKey({ shares, threshold })
+
+Split the master key into multiple shares using Shamir's Secret Sharing. A subset of these shares (specified by `threshold`) is required to reconstruct the master key.
+
+Parameters:
+- `shares` — number. Total number of shares to create.
+- `threshold` — number. Minimum number of shares required to reconstruct the master key.
+
+Returns: `Array<string>` of bech32-encoded shares (prefixed with `hksh1…`).
+
+Requires authentication.
+
+#### combineKey({ shares })
+
+Combine Shamir shares to reconstruct the master key. The number of shares provided must be at least equal to the threshold used when splitting.
+
+Parameters:
+- `shares` — Array of bech32-encoded shares (each prefixed with `hksh1…`).
+
+Returns: `hkmk…` string (bech32-encoded master key).
+
+Requires authentication.
+
 #### recall()
 
 Attempt to read a stored bech32 master key from `sessionStorage` and log in automatically.
@@ -227,6 +250,22 @@ Notes:
 - All methods throw if not authenticated, except `verify`, which operates on provided public inputs.
 - PassKeys helpers encode the WebAuthn `rawId` with Bech32 HRP `hkwa` and use it as the login secret. The worker derives keys from whatever string you pass to `login()`; `hkwa…` is simply a recognizable wrapper for the credential ID.
 
+### Authentication with Shamir Shares
+
+You can now authenticate using Shamir shares instead of a passphrase or master key. Simply paste one or more shares (one per line) into the login field. The system will automatically detect and combine valid shares.
+
+Example:
+```js
+// Split the master key into 3 shares, requiring 2 to reconstruct
+const shares = await auth.getSplitKey({ shares: 3, threshold: 2 });
+// shares = ['hksh1...', 'hksh1...', 'hksh1...']
+
+// Later, authenticate with at least 2 shares
+await auth.login('hksh1...\nhksh1...');
+// or with all 3 shares
+await auth.login(shares.join('\n'));
+```
+
 ---
 
 ## Bech32 prefixes
@@ -242,6 +281,7 @@ Short, readable Bech32 encodings are used with app prefix `hk` + tag:
 - `hkct…` ciphertext
 - `hkdk…` derived key material
 - `hkwa…` WebAuthn credential ID (used as a login secret by helpers)
+- `hksh1…` Shamir share
 
 ---
 

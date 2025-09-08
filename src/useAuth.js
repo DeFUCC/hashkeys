@@ -100,13 +100,13 @@ function useAuth(options = {}) {
       if (!auth.authenticated) throw new Error('Not authenticated');
       return send('get-master-key')
     },
-    getSplitKey(data) {
+    getSplitKey({ shares, threshold }) {
       if (!auth.authenticated) throw new Error('Not authenticated');
-      return send('get-split-key', data)
+      return send('get-split-key', { shares, threshold })
     },
-    combineKey(data) {
+    combineKey({ shares }) {
       if (!auth.authenticated) throw new Error('Not authenticated');
-      return send('combine-key', data)
+      return send('combine-key', { shares })
     },
 
     async recall() {
